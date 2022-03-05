@@ -1,0 +1,13 @@
+[package]
+name = "ntriple"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nordine Bittich <contact@bittich.be>"]
+description =  "Linked data related stuff"
+categories = ["database"]
+license = "MIT"
+homepage = "https://github.com/nbittich/doom"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nom = "7.1.0"
