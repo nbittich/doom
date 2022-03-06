@@ -1,12 +1,11 @@
 #![allow(dead_code, unused_imports)]
-
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_until};
-use nom::combinator::flat_map;
+use nom::bytes::complete::{tag, take_till, take_until};
+use nom::combinator::{flat_map, opt, value};
 use nom::complete::take;
 use nom::error::Error;
 use nom::multi::many0;
-use nom::sequence::{delimited, tuple};
+use nom::sequence::{delimited, pair, tuple};
 use nom::AsChar;
 use nom::{
     bytes::complete::{escaped, take_while},
@@ -17,6 +16,8 @@ use nom::{
     sequence::{preceded, terminated},
     IResult,
 };
+
+/// https://www.w3.org/TR/n-triples/
 
 const SIMPLE_LITERAL: &str = "http://www.w3.org/2001/XMLSchema#string";
 const LANG_LITERAL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString";
@@ -89,6 +90,8 @@ fn extract_literal<'a>(s: &'a str) -> IResult<&'a str, Node> {
 }
 
 fn parse_one_triple<'a>(s: &'a str) -> IResult<&'a str, Triple<'a>> {
+    let (remaining, _) = multispace0(s)?;
+    let (remaining, _) = skip_comment(remaining)?;
     map(
         tuple((
             extract_url,
@@ -100,32 +103,38 @@ fn parse_one_triple<'a>(s: &'a str) -> IResult<&'a str, Triple<'a>> {
             predicate: pred,
             object: obj,
         },
-    )(s)
+    )(remaining)
 }
 
 fn parse_list_triples<'a>(s: &'a str) -> IResult<&'a str, Vec<Triple<'a>>> {
     many0(terminated(
         parse_one_triple,
-        preceded(multispace0, char('.')),
+        preceded(multispace0, tag(".")),
     ))(s)
+}
+
+fn skip_comment<'a>(s: &'a str) -> IResult<&'a str, Option<&'a str>> {
+    opt(preceded(char('#'), take_until("\n")))(s)
 }
 
 #[cfg(test)]
 mod tests {
-    use nom::error::ErrorKind;
+    use nom::{combinator::value, error::ErrorKind, sequence::pair};
 
     use super::*;
 
     #[test]
     fn parse_list_triples_test() {
-        let triple = r#"  
-         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>.
+        let triple = r#" 
+        # this is a comment
+         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>. # this is a comment at EOF
              <http://bittich.be/some/url/123><http://example.org/firstName><http://n.com/nordine>.
              <http://example.org/show/218> <http://www.w3.org/2000/01/rdf-schema#label> "That Seventies Show".
              <http://example.org/show/218> <http://example.org/show/localName> "That Seventies Show"@en .
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
 
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://example.org/show/218> <http://example.org/show/localName> "Cette Série des Années Septante"@fr-be .
@@ -133,8 +142,9 @@ mod tests {
          
          "#;
 
-        let (_remaining, triples) = parse_list_triples(triple).unwrap();
-        assert!(triples.len() == 9);
+        let (remaining, triples) = parse_list_triples(triple).unwrap();
+        println!("{:?}", remaining);
         println!("{:?}", triples);
+        assert!(triples.len() == 9);
     }
 }
