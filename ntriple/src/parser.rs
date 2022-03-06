@@ -134,7 +134,7 @@ mod tests {
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
-         #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+            #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
 
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://example.org/show/218> <http://example.org/show/localName> "Cette Série des Années Septante"@fr-be .
