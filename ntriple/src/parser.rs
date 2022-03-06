@@ -34,7 +34,7 @@ enum Node<'a> {
         datatype: Box<Node<'a>>,
         value: &'a str,
         lang: Option<&'a str>,
-    }
+    },
 }
 
 fn extract_lang<'a>(s: &'a str) -> IResult<&'a str, &'a str> {
@@ -45,13 +45,7 @@ fn extract_url<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
     preceded(
         multispace0,
         map(
-            delimited(
-                char('<'),
-                take_while(|s: char| {
-                    s != '>'
-                }),
-                char('>'),
-            ),
+            delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
             |uri| Node::Iri(uri),
         ),
     )(s)
@@ -139,8 +133,8 @@ mod tests {
          
          "#;
 
-         let (_remaining, triples) =  parse_list_triples(triple).unwrap();
-         assert!(triples.len() == 9);
+        let (_remaining, triples) = parse_list_triples(triple).unwrap();
+        assert!(triples.len() == 9);
         println!("{:?}", triples);
     }
 }
