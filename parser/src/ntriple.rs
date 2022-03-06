@@ -103,7 +103,7 @@ fn extract_literal<'a>(s: &'a str) -> IResult<&'a str, Node> {
 
 fn parse_one_triple<'a>(s: &'a str) -> IResult<&'a str, Triple<'a>> {
     let (remaining, _) = multispace0(s)?;
-    let (remaining, _) = skip_comment(remaining)?;
+    let (remaining, _) = skip_comments(remaining)?;
     map(
         tuple((
             alt((extract_iri, extract_bnode)),
@@ -125,7 +125,7 @@ fn parse_list_triples<'a>(s: &'a str) -> IResult<&'a str, Vec<Triple<'a>>> {
     ))(s)
 }
 
-fn skip_comment<'a>(s: &'a str) -> IResult<&'a str, Vec<&'a str>> {
+fn skip_comments<'a>(s: &'a str) -> IResult<&'a str, Vec<&'a str>> {
     many0(terminated(
         preceded(char('#'), take_until("\n")),
         multispace0,
