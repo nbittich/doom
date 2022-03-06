@@ -126,12 +126,10 @@ fn parse_list_triples<'a>(s: &'a str) -> IResult<&'a str, Vec<Triple<'a>>> {
 }
 
 fn skip_comment<'a>(s: &'a str) -> IResult<&'a str, Vec<&'a str>> {
-    many0(
-        terminated(
+    many0(terminated(
         preceded(char('#'), take_until("\n")),
-        multispace0
-    )
-    )(s)
+        multispace0,
+    ))(s)
 }
 
 #[cfg(test)]
@@ -156,7 +154,7 @@ mod tests {
          #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
 
 
-         
+
             #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
             _:alice <http://xmlns.com/foaf/0.1/knows> _:bob .
             _:bob <http://xmlns.com/foaf/0.1/knows> _:alice .
@@ -183,8 +181,9 @@ mod tests {
          <http://example.org/show/218> <http://example.org/show/localName> "Cette Série des Années Septante"@fr-be .
 
          <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
          "#;
-        let (remaining, triples) = parse_list_triples(triples).unwrap();
-        println!("{:?}", triples);
+        let (_, triples) = parse_list_triples(triples).unwrap();
+        assert_eq!(6, triples.len());
     }
 }
