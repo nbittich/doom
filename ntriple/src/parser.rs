@@ -34,11 +34,7 @@ enum Node<'a> {
         datatype: Box<Node<'a>>,
         value: &'a str,
         lang: Option<&'a str>,
-    },
-    LangLiteral {
-        lang: &'a str,
-        value: &'a str,
-    },
+    }
 }
 
 fn extract_lang<'a>(s: &'a str) -> IResult<&'a str, &'a str> {
@@ -52,13 +48,7 @@ fn extract_url<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
             delimited(
                 char('<'),
                 take_while(|s: char| {
-                    s.is_alphanum()
-                        || s.eq(&'/')
-                        || s.eq(&'-')
-                        || s.eq(&':')
-                        || s.eq(&'.')
-                        || s.eq(&'?')
-                        || s.eq(&'#')
+                    s != '>'
                 }),
                 char('>'),
             ),
@@ -149,11 +139,8 @@ mod tests {
          
          "#;
 
-        println!("{:?}", parse_list_triples(triple));
-    }
-    #[test]
-    fn parse_list_triples_literal_test() {
-        let triple = r#"<http://example.org/show/218> <http://www.w3.org/2000/01/rdf-schema#label> "That Seventies Show"^^<http://www.w3.org/2001/XMLSchema#string> ."#;
-        println!("{:?}", parse_list_triples(triple));
+         let (_remaining, triples) =  parse_list_triples(triple).unwrap();
+         assert!(triples.len() == 9);
+        println!("{:?}", triples);
     }
 }
