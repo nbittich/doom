@@ -3,7 +3,7 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_till, take_until};
 use nom::combinator::{flat_map, opt, value};
 use nom::complete::take;
-use nom::error::{Error, ErrorKind, make_error};
+use nom::error::{make_error, Error, ErrorKind};
 use nom::multi::many0;
 use nom::sequence::{delimited, pair, tuple};
 use nom::AsChar;
@@ -55,13 +55,13 @@ fn extract_iri<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
 
 fn extract_bnode<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
     let (remaining, _) = multispace0(s)?;
-    let (remaining, label) = delimited(tag("_:"), take_while(|s: char| s != ' '), char(' '))(remaining)?;
+    let (remaining, label) =
+        delimited(tag("_:"), take_while(|s: char| s != ' '), char(' '))(remaining)?;
     if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
-      let err: Error<&'a str>= make_error(label, ErrorKind::IsNot);
-      return Err(nom::Err::Error(err));
+        let err: Error<&'a str> = make_error(label, ErrorKind::IsNot);
+        return Err(nom::Err::Error(err));
     }
     Ok((remaining, Node::BlankNode(label)))
-    
 }
 
 fn extract_literal<'a>(s: &'a str) -> IResult<&'a str, Node> {
