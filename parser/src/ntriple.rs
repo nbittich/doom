@@ -3,7 +3,7 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_till, take_until};
 use nom::combinator::{flat_map, opt, value};
 use nom::complete::take;
-use nom::error::Error;
+use nom::error::{Error, ErrorKind, make_error};
 use nom::multi::many0;
 use nom::sequence::{delimited, pair, tuple};
 use nom::AsChar;
@@ -31,6 +31,7 @@ struct Triple<'a> {
 #[derive(Debug)]
 enum Node<'a> {
     Iri(&'a str),
+    BlankNode(&'a str),
     Literal {
         datatype: Box<Node<'a>>,
         value: &'a str,
@@ -42,7 +43,7 @@ fn extract_lang<'a>(s: &'a str) -> IResult<&'a str, &'a str> {
     preceded(char('@'), take_while(|a: char| a.is_alpha() || a == '-'))(s)
 }
 
-fn extract_url<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
+fn extract_iri<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
     preceded(
         multispace0,
         map(
@@ -52,9 +53,20 @@ fn extract_url<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
     )(s)
 }
 
+fn extract_bnode<'a>(s: &'a str) -> IResult<&'a str, Node<'a>> {
+    let (remaining, _) = multispace0(s)?;
+    let (remaining, label) = delimited(tag("_:"), take_while(|s: char| s != ' '), char(' '))(remaining)?;
+    if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
+      let err: Error<&'a str>= make_error(label, ErrorKind::IsNot);
+      return Err(nom::Err::Error(err));
+    }
+    Ok((remaining, Node::BlankNode(label)))
+    
+}
+
 fn extract_literal<'a>(s: &'a str) -> IResult<&'a str, Node> {
     let mut extract_value = delimited(char('"'), take_while(|s: char| s != '"'), char('"'));
-    let mut extract_literal = preceded(tag("^^"), extract_url);
+    let mut extract_literal = preceded(tag("^^"), extract_iri);
 
     let (no_white_space, _) = multispace0(s)?;
     let (remaining, value) = extract_value(no_white_space)?;
@@ -94,9 +106,9 @@ fn parse_one_triple<'a>(s: &'a str) -> IResult<&'a str, Triple<'a>> {
     let (remaining, _) = skip_comment(remaining)?;
     map(
         tuple((
-            extract_url,
-            extract_url,
-            cut(alt((extract_url, extract_literal))),
+            alt((extract_iri, extract_bnode)),
+            extract_iri,
+            cut(alt((extract_iri, extract_bnode, extract_literal))),
         )),
         |(sub, pred, obj)| Triple {
             subject: sub,
@@ -109,7 +121,7 @@ fn parse_one_triple<'a>(s: &'a str) -> IResult<&'a str, Triple<'a>> {
 fn parse_list_triples<'a>(s: &'a str) -> IResult<&'a str, Vec<Triple<'a>>> {
     many0(terminated(
         parse_one_triple,
-        preceded(multispace0, tag(".")),
+        preceded(multispace0, cut(tag("."))),
     ))(s)
 }
 
@@ -135,16 +147,17 @@ mod tests {
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
             #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
-
+            _:alice <http://xmlns.com/foaf/0.1/knows> _:bob .
+            _:bob <http://xmlns.com/foaf/0.1/knows> _:alice .
          <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
          <http://example.org/show/218> <http://example.org/show/localName> "Cette Série des Années Septante"@fr-be .
 
-         
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
          "#;
 
         let (remaining, triples) = parse_list_triples(triple).unwrap();
         println!("{:?}", remaining);
         println!("{:?}", triples);
-        assert!(triples.len() == 9);
+        assert!(triples.len() == 12);
     }
 }
