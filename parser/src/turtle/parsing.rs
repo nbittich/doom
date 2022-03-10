@@ -10,25 +10,40 @@ use std::collections::HashMap;
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_till, take_until, take_while},
-    character::complete::*,
-    combinator::{map, opt},
+    bytes::complete::{
+        tag, tag_no_case, take, take_till, take_till1, take_until, take_until1, take_while,
+        take_while1,
+    },
+    character::{complete::*, is_space},
+    combinator::{map, opt, peek},
     error::{make_error, Error, ErrorKind},
     multi::{many0, separated_list0},
-    sequence::{delimited, pair, preceded, terminated},
-    AsChar, IResult, Parser,
+    sequence::{delimited, pair, preceded, separated_pair, terminated},
+    AsChar, IResult, InputIter, Parser,
 };
 
 use crate::shared::{LANG_LITERAL, SIMPLE_LITERAL};
 
-use super::datastruct::{TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE, Iri};
+use super::model::{Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE};
 
+fn extract_prefixed_iri(s: &str) -> IResult<&str, Iri> {
+    let mut extract_prefixed = map(
+        separated_pair(take_until1(":"), tag(":"), take_until1(" ")),
+        |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
+    );
+    preceded(multispace0, extract_prefixed)(s)
+}
 
-pub fn extract_enclosed_iri(s: &str) -> IResult<&str, &str> {
-    preceded(
-        multispace0,
+fn extract_enclosed_iri(s: &str) -> IResult<&str, Iri> {
+    let mut extract_enclosed = map(
         delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
-    )(s)
+        Iri::Enclosed,
+    );
+
+    preceded(multispace0, extract_enclosed)(s)
+}
+fn extract_iri(s: &str) -> IResult<&str, Iri> {
+    alt((extract_enclosed_iri, extract_prefixed_iri))(s)
 }
 
 fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
@@ -37,10 +52,10 @@ fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
         tag_no_case(BASE_SPARQL).or(tag_no_case(BASE_TURTLE)),
     )(s)?;
     match base {
-        BASE_SPARQL => map(extract_enclosed_iri, |iri| TurtleValue::Base(Iri::Enclosed(iri)))(remaining),
+        BASE_SPARQL => map(extract_enclosed_iri, |iri| TurtleValue::Base(iri))(remaining),
         BASE_TURTLE => map(
             terminated(extract_enclosed_iri, preceded(multispace0, char('.'))),
-            |iri| TurtleValue::Base(Iri::Enclosed(iri)),
+            |iri| TurtleValue::Base(iri),
         )(remaining),
         _ => {
             let err: Error<&str> = make_error(base, ErrorKind::IsNot);
@@ -56,11 +71,8 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
     let mut get_prefix = preceded(
         multispace0,
         map(
-            pair(
-                take_while(|s: char| s != '<' && !s.is_whitespace()),
-                extract_enclosed_iri,
-            ),
-            |(prefix, iri)|TurtleValue::Prefix((prefix, Iri::Enclosed(iri))),
+            separated_pair(take_until(":"), tag(":"), extract_enclosed_iri),
+            |(prefix, iri)| TurtleValue::Prefix((prefix, iri)),
         ),
     );
     match prefix {
@@ -74,26 +86,21 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
 }
 
 // TODO
-fn extract_turtle_b_node(s: &str) -> IResult<&str, &str> {
+fn extract_turtle_b_node(s: &str) -> IResult<&str, Iri> {
     todo!()
 }
-fn extract_literal(s: &str) -> IResult<&str, &str> {
-   
+fn extract_literal(s: &str) -> IResult<&str, Iri> {
     todo!()
 }
 
-fn extract_object_lists(s: &str) -> IResult<&str, Vec<&str>> {
+fn extract_object_lists(s: &str) -> IResult<&str, Vec<Iri>> {
     separated_list0(
         char(','),
-        alt((
-            extract_enclosed_iri,
-            extract_turtle_b_node,
-            extract_literal,
-        )),
+        alt((extract_enclosed_iri, extract_turtle_b_node, extract_literal)),
     )(s)
 }
 
-fn predicate_lists(s: &str) -> IResult<&str, (&str, Vec<(&str, Vec<&str>)>)> {
+fn predicate_lists(s: &str) -> IResult<&str, (Iri, Vec<(Iri, Vec<Iri>)>)> {
     let (remaining, subject) = extract_enclosed_iri(s)?; // TODO handle other cases
     let (remaining, list) = preceded(
         multispace0,
@@ -110,7 +117,7 @@ fn predicate_lists(s: &str) -> IResult<&str, (&str, Vec<(&str, Vec<&str>)>)> {
 
 #[cfg(test)]
 mod test {
-    use crate::turtle::datastruct::Iri;
+    use crate::turtle::model::Iri;
 
     use super::{extract_base, extract_prefix, TurtleValue};
     use std::collections::HashMap;
@@ -130,10 +137,16 @@ mod test {
         "#;
 
         let (remaining, base_turtle) = extract_base(base_turtle).unwrap();
-        assert_eq!(TurtleValue::Base(Iri::Enclosed("http://one.example/turtle")), base_turtle);
+        assert_eq!(
+            TurtleValue::Base(Iri::Enclosed("http://one.example/turtle")),
+            base_turtle
+        );
 
         let (remaining, base_sparql) = extract_base(base_sparql).unwrap();
-        assert_eq!(TurtleValue::Base(Iri::Enclosed("http://one.example/sparql")), base_sparql);
+        assert_eq!(
+            TurtleValue::Base(Iri::Enclosed("http://one.example/sparql")),
+            base_sparql
+        );
     }
 
     #[test]
@@ -153,18 +166,18 @@ mod test {
 
         let (remaining, prefix_turtle) = extract_prefix(prefix_turtle).unwrap();
         assert_eq!(
-            TurtleValue::Prefix(("p:", Iri::Enclosed("http://two.example/turtle"))),
+            TurtleValue::Prefix(("p", Iri::Enclosed("http://two.example/turtle"))),
             prefix_turtle
         );
         let (remaining, prefix_empty_turtle) = extract_prefix(prefix_empty_turtle).unwrap();
         assert_eq!(
-            TurtleValue::Prefix((":", Iri::Enclosed("http://two.example/empty"))),
+            TurtleValue::Prefix(("", Iri::Enclosed("http://two.example/empty"))),
             prefix_empty_turtle
         );
 
         let (remaining, prefix_sparql) = extract_prefix(prefix_sparql).unwrap();
         assert_eq!(
-            TurtleValue::Prefix(("p:", Iri::Enclosed("http://two.example/sparql"))),
+            TurtleValue::Prefix(("p", Iri::Enclosed("http://two.example/sparql"))),
             prefix_sparql
         );
     }
