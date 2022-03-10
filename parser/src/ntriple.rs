@@ -14,8 +14,36 @@ use nom::{
     IResult,
 };
 
-use crate::shared::{extract_iri, Node, Statement, LANG_LITERAL, SIMPLE_LITERAL};
+use crate::shared::{ LANG_LITERAL, SIMPLE_LITERAL};
 
+#[derive(Debug)]
+pub struct Statement<'a> {
+    pub subject: Node<'a>,
+    pub predicate: Node<'a>,
+    pub object: Node<'a>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Node<'a> {
+    Iri(&'a str),
+    BlankNode(&'a str),
+    Literal {
+        datatype: Box<Node<'a>>,
+        value: &'a str,
+        lang: Option<&'a str>,
+    },
+}
+
+
+pub fn extract_iri(s: &str) -> IResult<&str, Node<'_>> {
+    preceded(
+        multispace0,
+        map(
+            delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
+            Node::Iri,
+        ),
+    )(s)
+}
 fn extract_lang(s: &str) -> IResult<&str, &str> {
     preceded(char('@'), take_while(|a: char| a.is_alpha() || a == '-'))(s)
 }
@@ -33,12 +61,12 @@ fn extract_bnode(s: &str) -> IResult<&str, Node<'_>> {
 
 fn extract_literal(s: &str) -> IResult<&str, Node<'_>> {
     let mut extract_value = delimited(char('"'), take_while(|s: char| s != '"'), char('"'));
-    let mut extract_literal = preceded(tag("^^"), extract_iri);
+    let mut extract_lit = preceded(tag("^^"), extract_iri);
 
     let (no_white_space, _) = multispace0(s)?;
     let (remaining, value) = extract_value(no_white_space)?;
 
-    if let Ok((remaining, datatype)) = extract_literal(remaining) {
+    if let Ok((remaining, datatype)) = extract_lit(remaining) {
         Ok((
             remaining,
             Node::Literal {
