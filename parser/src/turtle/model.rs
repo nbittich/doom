@@ -5,8 +5,8 @@ pub const PREFIX_SPARQL: &str = "PREFIX";
 
 #[derive(PartialEq, Debug)]
 pub enum TurtleValue<'a> {
-    Base(Iri<'a>),
-    Prefix((&'a str, Iri<'a>)),
+    Base(Box<TurtleValue<'a>>),
+    Prefix((&'a str, Box<TurtleValue<'a>>)),
     Iri(Iri<'a>),
     Literal(Literal<'a>),
     BNode(BlankNode<'a>),

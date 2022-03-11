@@ -50,7 +50,7 @@ fn extract_lang(s: &str) -> IResult<&str, &str> {
 fn extract_bnode(s: &str) -> IResult<&str, Node<'_>> {
     let (remaining, _) = multispace0(s)?;
     let (remaining, label) =
-        delimited(tag("_:"), take_while(|s: char| s != ' '), char(' '))(remaining)?;
+        delimited(tag("_:"), take_while(|s: char| !s.is_whitespace()), space1)(remaining)?;
     if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
         let err: Error<&str> = make_error(label, ErrorKind::IsNot);
         return Err(nom::Err::Error(err));

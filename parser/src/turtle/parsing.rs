@@ -28,9 +28,11 @@ use crate::{
     turtle::model::Literal,
 };
 
-use super::model::{Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE};
+use super::model::{
+    BlankNode, Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE,
+};
 
-fn extract_prefixed_iri(s: &str) -> IResult<&str, Iri> {
+fn extract_prefixed_iri(s: &str) -> IResult<&str, TurtleValue> {
     let mut extract_prefixed = map(
         separated_pair(
             take_while(|s: char| s.is_alphanumeric()),
@@ -39,22 +41,23 @@ fn extract_prefixed_iri(s: &str) -> IResult<&str, Iri> {
         ),
         |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
     );
-    preceded(multispace0, extract_prefixed)(s)
+    map(preceded(multispace0, extract_prefixed), TurtleValue::Iri)(s)
 }
 
-fn extract_enclosed_iri(s: &str) -> IResult<&str, Iri> {
+fn extract_enclosed_iri(s: &str) -> IResult<&str, TurtleValue> {
     let mut extract_enclosed = map(
         delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
         Iri::Enclosed,
     );
 
-    preceded(multispace0, extract_enclosed)(s)
+    map(preceded(multispace0, extract_enclosed), TurtleValue::Iri)(s)
 }
 fn extract_iri(s: &str) -> IResult<&str, TurtleValue> {
-    map(
-        alt((extract_enclosed_iri, extract_prefixed_iri)),
-        TurtleValue::Iri,
-    )(s)
+    alt((
+        extract_enclosed_iri,
+        extract_prefixed_iri,
+        extract_labeled_bnode,
+    ))(s)
 }
 
 fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
@@ -63,10 +66,10 @@ fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
         tag_no_case(BASE_SPARQL).or(tag_no_case(BASE_TURTLE)),
     )(s)?;
     match base {
-        BASE_SPARQL => map(extract_enclosed_iri, |iri| TurtleValue::Base(iri))(remaining),
+        BASE_SPARQL => map(extract_enclosed_iri, |iri| TurtleValue::Base(Box::new(iri)))(remaining),
         BASE_TURTLE => map(
             terminated(extract_enclosed_iri, preceded(multispace0, char('.'))),
-            |iri| TurtleValue::Base(iri),
+            |iri| TurtleValue::Base(Box::new(iri)),
         )(remaining),
         _ => {
             let err: Error<&str> = make_error(base, ErrorKind::IsNot);
@@ -83,7 +86,7 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
         multispace0,
         map(
             separated_pair(take_until(":"), tag(":"), extract_enclosed_iri),
-            |(prefix, iri)| TurtleValue::Prefix((prefix, iri)),
+            |(prefix, iri)| TurtleValue::Prefix((prefix, Box::new(iri))),
         ),
     );
     match prefix {
@@ -96,10 +99,20 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
     }
 }
 
-// TODO
-fn extract_turtle_b_node(s: &str) -> IResult<&str, TurtleValue> {
-    todo!()
+// TODO nested + unlabeled bnode
+
+fn extract_labeled_bnode(s: &str) -> IResult<&str, TurtleValue<'_>> {
+    let mut parse_labeled_bnode =
+        delimited(tag("_:"), take_while(|s: char| !s.is_whitespace()), space0);
+    let (remaining, _) = multispace0(s)?;
+    let (remaining, label) = parse_labeled_bnode(remaining)?;
+    if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
+        let err: Error<&str> = make_error(label, ErrorKind::IsNot);
+        return Err(nom::Err::Error(err));
+    }
+    Ok((remaining, TurtleValue::BNode(BlankNode::Labeled(label))))
 }
+
 fn parse_boolean(s: &str) -> IResult<&str, bool> {
     let (remaining, val) = terminated(
         map(alt((tag("true"), tag("false"))), |b: &str| {
@@ -152,6 +165,8 @@ fn extract_primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
         return Err(nom::Err::Error(err));
     }
 }
+
+// TODO handle primitive literal datatype when sharing prefix
 fn extract_string_literal(s: &str) -> IResult<&str, TurtleValue> {
     let mut single_quote_literal = delimited(tag("'"), take_until1("'"), tag("'"));
     let mut double_quote_literal = delimited(char('"'), take_until1(r#"""#), char('"'));
@@ -225,7 +240,8 @@ fn predicate_lists(s: &str) -> IResult<&str, (TurtleValue, Vec<(TurtleValue, Vec
 
 #[cfg(test)]
 mod test {
-    use crate::turtle::model::Iri;
+    use crate::turtle::model::{BlankNode, Iri};
+    use crate::turtle::parsing::extract_labeled_bnode;
 
     use super::{extract_base, extract_prefix, extract_prefixed_iri, TurtleValue};
     use std::collections::HashMap;
@@ -246,13 +262,17 @@ mod test {
 
         let (remaining, base_turtle) = extract_base(base_turtle).unwrap();
         assert_eq!(
-            TurtleValue::Base(Iri::Enclosed("http://one.example/turtle")),
+            TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
+                "http://one.example/turtle"
+            )))),
             base_turtle
         );
 
         let (remaining, base_sparql) = extract_base(base_sparql).unwrap();
         assert_eq!(
-            TurtleValue::Base(Iri::Enclosed("http://one.example/sparql")),
+            TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
+                "http://one.example/sparql"
+            )))),
             base_sparql
         );
     }
@@ -274,18 +294,27 @@ mod test {
 
         let (remaining, prefix_turtle) = extract_prefix(prefix_turtle).unwrap();
         assert_eq!(
-            TurtleValue::Prefix(("p", Iri::Enclosed("http://two.example/turtle"))),
+            TurtleValue::Prefix((
+                "p",
+                Box::new(TurtleValue::Iri(Iri::Enclosed("http://two.example/turtle")))
+            )),
             prefix_turtle
         );
         let (remaining, prefix_empty_turtle) = extract_prefix(prefix_empty_turtle).unwrap();
         assert_eq!(
-            TurtleValue::Prefix(("", Iri::Enclosed("http://two.example/empty"))),
+            TurtleValue::Prefix((
+                "",
+                Box::new(TurtleValue::Iri(Iri::Enclosed("http://two.example/empty")))
+            )),
             prefix_empty_turtle
         );
 
         let (remaining, prefix_sparql) = extract_prefix(prefix_sparql).unwrap();
         assert_eq!(
-            TurtleValue::Prefix(("p", Iri::Enclosed("http://two.example/sparql"))),
+            TurtleValue::Prefix((
+                "p",
+                Box::new(TurtleValue::Iri(Iri::Enclosed("http://two.example/sparql")))
+            )),
             prefix_sparql
         );
     }
@@ -297,11 +326,20 @@ mod test {
         assert_eq!(
             Ok((
                 "",
-                Iri::Prefixed {
+                TurtleValue::Iri(Iri::Prefixed {
                     prefix: "foaf",
                     local_name: "firstName",
-                },
+                }),
             ),),
+            res
+        );
+    }
+    #[test]
+    fn extract_labeled_bnode_test() {
+        let s = "_:alice";
+        let res = extract_labeled_bnode(s);
+        assert_eq!(
+            Ok(("", TurtleValue::BNode(BlankNode::Labeled("alice")),),),
             res
         );
     }
@@ -320,10 +358,11 @@ mod test {
         assert_eq!(5, res.1.len());
         dbg!(&res);
         let s = r#"
-            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".                                                                           
+            _:helium <http://example.org/elements/atomicNumber>  "2".                                                                           
         "#;
         let (remaining, res) = predicate_lists(s).unwrap();
         assert_eq!(1, res.1.len());
+        dbg!(&res);
 
         let s = r#"
             <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".                                                                           
