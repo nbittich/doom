@@ -3,7 +3,6 @@ pub const BASE_SPARQL: &str = "BASE";
 pub const PREFIX_TURTLE: &str = "@prefix";
 pub const PREFIX_SPARQL: &str = "PREFIX";
 
-
 #[derive(PartialEq, Debug)]
 pub enum TurtleValue<'a> {
     Base(Iri<'a>),
@@ -11,11 +10,11 @@ pub enum TurtleValue<'a> {
     Iri(Iri<'a>),
     Literal(Literal<'a>),
     BNode(BlankNode<'a>),
-    OrderedList(Vec<TurtleValue<'a>>)
+    OrderedList(Vec<TurtleValue<'a>>),
 }
 #[derive(PartialEq, Debug)]
 pub enum Iri<'a> {
-    Enclosed (&'a str),
+    Enclosed(&'a str),
     Prefixed {
         prefix: &'a str,
         local_name: &'a str,
@@ -24,12 +23,12 @@ pub enum Iri<'a> {
 #[derive(PartialEq, Debug)]
 pub enum Literal<'a> {
     Quoted {
-        datatype: Box<Iri<'a>>,
+        datatype: Option<Box<TurtleValue<'a>>>,
         value: &'a str,
         lang: Option<&'a str>,
     },
     Double(f64),
-    Decimal(f64),
+    Decimal(f32),
     Integer(i64),
     Boolean(bool),
 }

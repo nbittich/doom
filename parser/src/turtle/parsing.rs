@@ -14,21 +14,29 @@ use nom::{
         tag, tag_no_case, take, take_till, take_till1, take_until, take_until1, take_while,
         take_while1,
     },
-    character::{complete::*, is_space},
-    combinator::{map, opt, peek},
+    character::{complete::*, is_alphanumeric, is_space},
+    combinator::{all_consuming, eof, map, opt, peek, recognize},
     error::{make_error, Error, ErrorKind},
     multi::{many0, separated_list0},
+    number::complete::{double, float, recognize_float},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
-    AsChar, IResult, InputIter, Parser,
+    AsChar, IResult, InputIter, ParseTo, Parser,
 };
 
-use crate::shared::{LANG_LITERAL, SIMPLE_LITERAL};
+use crate::{
+    shared::{LANG_LITERAL, XSD_STRING},
+    turtle::model::Literal,
+};
 
 use super::model::{Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE};
 
 fn extract_prefixed_iri(s: &str) -> IResult<&str, Iri> {
     let mut extract_prefixed = map(
-        separated_pair(take_until1(":"), tag(":"), take_until1(" ")),
+        separated_pair(
+            take_while(|s: char| s.is_alphanumeric()),
+            tag(":"),
+            take_while(|s: char| !s.is_whitespace()),
+        ),
         |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
     );
     preceded(multispace0, extract_prefixed)(s)
@@ -42,8 +50,11 @@ fn extract_enclosed_iri(s: &str) -> IResult<&str, Iri> {
 
     preceded(multispace0, extract_enclosed)(s)
 }
-fn extract_iri(s: &str) -> IResult<&str, Iri> {
-    alt((extract_enclosed_iri, extract_prefixed_iri))(s)
+fn extract_iri(s: &str) -> IResult<&str, TurtleValue> {
+    map(
+        alt((extract_enclosed_iri, extract_prefixed_iri)),
+        TurtleValue::Iri,
+    )(s)
 }
 
 fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
@@ -86,27 +97,124 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
 }
 
 // TODO
-fn extract_turtle_b_node(s: &str) -> IResult<&str, Iri> {
+fn extract_turtle_b_node(s: &str) -> IResult<&str, TurtleValue> {
     todo!()
 }
-fn extract_literal(s: &str) -> IResult<&str, Iri> {
-    todo!()
+fn parse_boolean(s: &str) -> IResult<&str, bool> {
+    let (remaining, val) = terminated(
+        map(alt((tag("true"), tag("false"))), |b: &str| {
+            b.parse::<bool>().map_err(|err| {
+                let err: Error<&str> = make_error(b, ErrorKind::IsNot);
+                nom::Err::Error(err)
+            })
+        }),
+        multispace0,
+    )(s)?;
+    let boolean_value = val?;
+    Ok((remaining, boolean_value))
 }
 
-fn extract_object_lists(s: &str) -> IResult<&str, Vec<Iri>> {
-    separated_list0(
-        char(','),
-        alt((extract_enclosed_iri, extract_turtle_b_node, extract_literal)),
-    )(s)
+fn parse_number(s: &str) -> IResult<&str, Literal> {
+    fn try_parse_int(s: &str) -> IResult<&str, i64> {
+        all_consuming(i64)(s)
+    }
+    fn try_parse_decimal(s: &str) -> IResult<&str, f32> {
+        all_consuming(float)(s)
+    }
+    fn try_parse_double(s: &str) -> IResult<&str, f64> {
+        all_consuming(double)(s)
+    }
+    let (remaining, num) = recognize_float(s)?;
+    if let Ok((_, n)) = try_parse_int(num) {
+        Ok((remaining, Literal::Integer(n)))
+    } else if let Ok((_, n)) = try_parse_decimal(num) {
+        Ok((remaining, Literal::Decimal(n)))
+    } else if let Ok((_, n)) = try_parse_double(num) {
+        Ok((remaining, Literal::Double(n)))
+    } else {
+        let err: Error<&str> = make_error(s, ErrorKind::IsNot);
+        return Err(nom::Err::Error(err));
+    }
 }
 
-fn predicate_lists(s: &str) -> IResult<&str, (Iri, Vec<(Iri, Vec<Iri>)>)> {
-    let (remaining, subject) = extract_enclosed_iri(s)?; // TODO handle other cases
+fn extract_primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
+    let (no_white_space, _) = multispace0(s)?;
+
+    if let Ok((remaining, boolean_value)) = parse_boolean(no_white_space) {
+        return Ok((
+            remaining,
+            TurtleValue::Literal(Literal::Boolean(boolean_value)),
+        ));
+    } else if let Ok((remaining, number_value)) = parse_number(no_white_space) {
+        return Ok((remaining, TurtleValue::Literal(number_value)));
+    } else {
+        let err: Error<&str> = make_error(no_white_space, ErrorKind::IsNot);
+        return Err(nom::Err::Error(err));
+    }
+}
+fn extract_string_literal(s: &str) -> IResult<&str, TurtleValue> {
+    let mut single_quote_literal = delimited(tag("'"), take_until1("'"), tag("'"));
+    let mut double_quote_literal = delimited(char('"'), take_until1(r#"""#), char('"'));
+    let mut multiline_quote_literal =
+        delimited(tag(r#"""""#), take_until1(r#"""""#), tag(r#"""""#));
+    let mut extract_datatype = preceded(tag("^^"), extract_iri);
+
+    fn extract_lang(s: &str) -> IResult<&str, &str> {
+        preceded(char('@'), take_while(|a: char| a.is_alpha() || a == '-'))(s)
+    }
+
+    let (no_white_space, _) = multispace0(s)?;
+    let (remaining, string_literal) = alt((
+        single_quote_literal,
+        double_quote_literal,
+        multiline_quote_literal,
+    ))(no_white_space)?;
+
+    if let Ok((remaining, datatype)) = extract_datatype(remaining) {
+        Ok((
+            remaining,
+            TurtleValue::Literal(Literal::Quoted {
+                datatype: Some(Box::new(datatype)),
+                value: string_literal,
+                lang: None,
+            }),
+        ))
+    } else if let Ok((remaining, lang)) = extract_lang(remaining) {
+        Ok((
+            remaining,
+            TurtleValue::Literal(Literal::Quoted {
+                datatype: Some(Box::new(TurtleValue::Iri(Iri::Enclosed(LANG_LITERAL)))),
+                value: string_literal,
+                lang: Some(lang),
+            }),
+        ))
+    } else {
+        Ok((
+            remaining,
+            TurtleValue::Literal(Literal::Quoted {
+                datatype: Some(Box::new(TurtleValue::Iri(Iri::Enclosed(XSD_STRING)))),
+                value: string_literal,
+                lang: None,
+            }),
+        ))
+    }
+}
+
+fn extract_literal(s: &str) -> IResult<&str, TurtleValue> {
+    alt((extract_string_literal, extract_primitive_literal))(s)
+}
+
+fn extract_object_lists(s: &str) -> IResult<&str, Vec<TurtleValue>> {
+    separated_list0(char(','), alt((extract_iri, extract_literal)))(s)
+}
+
+fn predicate_lists(s: &str) -> IResult<&str, (TurtleValue, Vec<(TurtleValue, Vec<TurtleValue>)>)> {
+    let (remaining, subject) = extract_iri(s)?; // TODO handle other cases
     let (remaining, list) = preceded(
         multispace0,
         separated_list0(
             delimited(multispace0, tag(";"), multispace0),
-            pair(extract_enclosed_iri, extract_object_lists),
+            pair(extract_iri, extract_object_lists),
         ),
     )(remaining)?;
 
@@ -119,7 +227,7 @@ fn predicate_lists(s: &str) -> IResult<&str, (Iri, Vec<(Iri, Vec<Iri>)>)> {
 mod test {
     use crate::turtle::model::Iri;
 
-    use super::{extract_base, extract_prefix, TurtleValue};
+    use super::{extract_base, extract_prefix, extract_prefixed_iri, TurtleValue};
     use std::collections::HashMap;
     use std::rc::Rc;
 
@@ -183,16 +291,34 @@ mod test {
     }
 
     #[test]
+    fn extract_prefixed_iri_test() {
+        let s = "foaf:firstName";
+        let res = extract_prefixed_iri(s);
+        assert_eq!(
+            Ok((
+                "",
+                Iri::Prefixed {
+                    prefix: "foaf",
+                    local_name: "firstName",
+                },
+            ),),
+            res
+        );
+    }
+
+    #[test]
     fn predicate_lists_test() {
         let s = r#"
             <http://en.wikipedia.org/wiki/Helium>                                                                                  
-            <http://example.org/elements/atomicNumber>  "2" ;                                                                              
-            <http://example.org/elements/atomicMass> "4.002602" ;                                                                          
-            <http://example.org/elements/specificGravity> "1.663E-4" .     
+            <http://example.org/elements/atomicNumber>  2 ;                                                                              
+            <http://example.org/elements/atomicMass> 4.002602 ;                                                                          
+            <http://example.org/elements/isOk> true ;                                                                          
+            <http://example.org/elements/isNotOk> false ;                                                                          
+            <http://example.org/elements/specificGravity> 1.663E-4 .     
         "#;
         let (remaining, res) = predicate_lists(s).unwrap();
-        assert_eq!(3, res.1.len());
-
+        assert_eq!(5, res.1.len());
+        dbg!(&res);
         let s = r#"
             <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".                                                                           
         "#;
@@ -211,6 +337,5 @@ mod test {
         let (remaining, res) = predicate_lists(s).unwrap();
         assert_eq!(1, res.1.len());
         assert_eq!(2, res.1[0].1.len());
-        dbg!(res);
     }
 }

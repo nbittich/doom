@@ -14,7 +14,7 @@ use nom::{
     IResult,
 };
 
-use crate::shared::{ LANG_LITERAL, SIMPLE_LITERAL};
+use crate::shared::{LANG_LITERAL, XSD_STRING};
 
 #[derive(Debug)]
 pub struct Statement<'a> {
@@ -33,7 +33,6 @@ pub enum Node<'a> {
         lang: Option<&'a str>,
     },
 }
-
 
 pub fn extract_iri(s: &str) -> IResult<&str, Node<'_>> {
     preceded(
@@ -88,7 +87,7 @@ fn extract_literal(s: &str) -> IResult<&str, Node<'_>> {
         Ok((
             remaining,
             Node::Literal {
-                datatype: Box::new(Node::Iri(SIMPLE_LITERAL)),
+                datatype: Box::new(Node::Iri(XSD_STRING)),
                 value,
                 lang: None,
             },
