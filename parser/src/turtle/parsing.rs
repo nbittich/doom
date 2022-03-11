@@ -22,6 +22,7 @@ use nom::{
     sequence::{delimited, pair, preceded, separated_pair, terminated},
     AsChar, IResult, InputIter, ParseTo, Parser,
 };
+use rand::{distributions::Alphanumeric, prelude::ThreadRng, Rng};
 
 use crate::{
     shared::{LANG_LITERAL, XSD_STRING},
@@ -101,6 +102,23 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
 
 // TODO nested + unlabeled bnode
 
+fn extract_unlabeled_bnode(s: &str) -> IResult<&str, (Option<&str>, TurtleValue)> {
+    let extract_unlabeled = delimited(char('['), take_until("]"), char(']'));
+    map(extract_unlabeled, |v: &str| {
+        let mut rng = ThreadRng::default();
+        let random_id: String = (&mut rng)
+            .sample_iter(Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        if v.is_empty() {
+            (None, TurtleValue::BNode(BlankNode::Unlabeled(random_id)))
+        } else {
+            (Some(v), TurtleValue::BNode(BlankNode::Unlabeled(random_id)))
+        }
+    })(s)
+}
 fn extract_labeled_bnode(s: &str) -> IResult<&str, TurtleValue<'_>> {
     let mut parse_labeled_bnode =
         delimited(tag("_:"), take_while(|s: char| !s.is_whitespace()), space0);
@@ -241,7 +259,7 @@ fn predicate_lists(s: &str) -> IResult<&str, (TurtleValue, Vec<(TurtleValue, Vec
 #[cfg(test)]
 mod test {
     use crate::turtle::model::{BlankNode, Iri};
-    use crate::turtle::parsing::extract_labeled_bnode;
+    use crate::turtle::parsing::{extract_labeled_bnode, extract_unlabeled_bnode};
 
     use super::{extract_base, extract_prefix, extract_prefixed_iri, TurtleValue};
     use std::collections::HashMap;
@@ -339,9 +357,18 @@ mod test {
         let s = "_:alice";
         let res = extract_labeled_bnode(s);
         assert_eq!(
-            Ok(("", TurtleValue::BNode(BlankNode::Labeled("alice")),),),
+            Ok(("", TurtleValue::BNode(BlankNode::Labeled("alice")))),
             res
         );
+    }
+    #[test]
+    fn extract_unlabeled_bnode_test() {
+        let s = "[]";
+        let res = extract_unlabeled_bnode(s);
+        dbg!(res);
+        let s = r#"[ foaf:name "Alice" ]"#;
+        let res = extract_unlabeled_bnode(s);
+        dbg!(res);
     }
 
     #[test]
