@@ -11,14 +11,14 @@ pub enum TurtleValue<'a> {
     Literal(Literal<'a>),
     BNode(BlankNode<'a>),
     ObjectList(Vec<TurtleValue<'a>>),
-    PredicateObjectList{
+    PredicateObjectList {
         predicate: Box<TurtleValue<'a>>,
-        object_list: Box<TurtleValue<'a>>
+        object_list: Box<TurtleValue<'a>>,
     },
-    Statement{
+    Statement {
         subject: Box<TurtleValue<'a>>,
-        predicates: Vec<TurtleValue<'a>>
-    }
+        predicates: Vec<TurtleValue<'a>>,
+    },
 }
 #[derive(PartialEq, Debug)]
 pub enum Iri<'a> {

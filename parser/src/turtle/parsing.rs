@@ -15,7 +15,7 @@ use nom::{
         take_while1,
     },
     character::{complete::*, is_alphanumeric, is_space},
-    combinator::{all_consuming, eof, map, opt, peek, recognize, cut},
+    combinator::{all_consuming, cut, eof, map, opt, peek, recognize},
     error::{make_error, Error, ErrorKind},
     multi::{many0, separated_list0},
     number::complete::{double, float, recognize_float},
@@ -112,7 +112,7 @@ fn extract_iri(s: &str) -> IResult<&str, TurtleValue> {
         extract_enclosed_iri,
         extract_prefixed_iri,
         extract_labeled_bnode,
-        extract_unlabeled_bnode
+        extract_unlabeled_bnode,
     ))(s)
 }
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -229,13 +229,15 @@ fn extract_literal(s: &str) -> IResult<&str, TurtleValue> {
 // TODO nested + unlabeled bnode
 fn extract_unlabeled_bnode(s: &str) -> IResult<&str, TurtleValue> {
     let unlabled_bnode_fn = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
-    let mut extract = preceded(char('['), terminated(alt((
-        predicate_lists(unlabled_bnode_fn),
-        unlabled_bnode_fn,
-    )
-    ), preceded(multispace0, cut(char(']')))));
-    preceded(multispace0,extract)(s)
-} 
+    let mut extract = preceded(
+        char('['),
+        terminated(
+            alt((predicate_lists(unlabled_bnode_fn), unlabled_bnode_fn)),
+            preceded(multispace0, cut(char(']'))),
+        ),
+    );
+    preceded(multispace0, extract)(s)
+}
 
 fn extract_object_lists(s: &str) -> IResult<&str, TurtleValue> {
     map(
@@ -281,9 +283,11 @@ where
 #[cfg(test)]
 mod test {
     use crate::turtle::model::{BlankNode, Iri};
-    use crate::turtle::parsing::{extract_labeled_bnode, extract_iri};
+    use crate::turtle::parsing::{extract_iri, extract_labeled_bnode};
 
-    use super::{extract_base, extract_prefix, extract_prefixed_iri, TurtleValue, extract_unlabeled_bnode};
+    use super::{
+        extract_base, extract_prefix, extract_prefixed_iri, extract_unlabeled_bnode, TurtleValue,
+    };
     use std::collections::HashMap;
     use std::rc::Rc;
 
@@ -383,7 +387,7 @@ mod test {
             res
         );
     }
-   
+
     #[test]
     fn predicate_lists_test() {
         let s = r#"
@@ -415,7 +419,7 @@ mod test {
     }
 
     #[test]
-    fn unlabeled_nested_bnode(){
+    fn unlabeled_nested_bnode() {
         let s = r#"
         [ foaf:name "Alice" ] foaf:knows [
     foaf:name "Bob" ;
@@ -424,7 +428,7 @@ mod test {
     foaf:mbox <bob@example.com> ] .
 				
         "#;
-       let res = predicate_lists(extract_iri)(s);
-       dbg!(res);
+        let res = predicate_lists(extract_iri)(s);
+        dbg!(res);
     }
 }
