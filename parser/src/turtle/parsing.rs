@@ -17,7 +17,7 @@ use nom::{
     character::{complete::*, is_alphanumeric, is_space},
     combinator::{all_consuming, cut, eof, map, opt, peek, recognize},
     error::{make_error, Error, ErrorKind},
-    multi::{many0, separated_list0},
+    multi::{many0, separated_list0, separated_list1},
     number::complete::{double, float, recognize_float},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
     AsChar, IResult, InputIter, ParseTo, Parser,
@@ -228,11 +228,11 @@ fn extract_literal(s: &str) -> IResult<&str, TurtleValue> {
 
 // TODO nested + unlabeled bnode
 fn extract_unlabeled_bnode(s: &str) -> IResult<&str, TurtleValue> {
-    let unlabled_bnode_fn = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
+    let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
     let mut extract = preceded(
         char('['),
         terminated(
-            alt((predicate_lists(unlabled_bnode_fn), unlabled_bnode_fn)),
+            alt((predicate_lists(unlabeled_subject), unlabeled_subject)),
             preceded(multispace0, cut(char(']'))),
         ),
     );
@@ -257,7 +257,7 @@ where
 
         let (remaining, list) = preceded(
             multispace0,
-            separated_list0(
+            separated_list1(
                 delimited(multispace0, tag(";"), multispace0),
                 map(
                     pair(extract_iri, alt((extract_literal, extract_iri))),
@@ -428,6 +428,10 @@ mod test {
     foaf:mbox <bob@example.com> ] .
 				
         "#;
+        let res = predicate_lists(extract_iri)(s);
+        dbg!(res);
+
+        let s = r#"[] foaf:knows [ foaf:name "Bob" ] ."#;
         let res = predicate_lists(extract_iri)(s);
         dbg!(res);
     }
