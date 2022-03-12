@@ -260,10 +260,10 @@ where
             separated_list0(
                 delimited(multispace0, tag(";"), multispace0),
                 map(
-                    pair(extract_iri, alt((extract_object_lists, extract_iri))),
-                    |(predicate, objects)| TurtleValue::PredicateObjectList {
+                    pair(extract_iri, alt((extract_literal, extract_object_lists, extract_iri))),
+                    |(predicate, objects)| TurtleValue::PredicateObject {
                         predicate: Box::new(predicate),
-                        object_list: Box::new(objects),
+                        object: Box::new(objects),
                     },
                 ),
             ),

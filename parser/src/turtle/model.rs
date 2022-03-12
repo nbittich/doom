@@ -11,9 +11,9 @@ pub enum TurtleValue<'a> {
     Literal(Literal<'a>),
     BNode(BlankNode<'a>),
     ObjectList(Vec<TurtleValue<'a>>),
-    PredicateObjectList {
+    PredicateObject {
         predicate: Box<TurtleValue<'a>>,
-        object_list: Box<TurtleValue<'a>>,
+        object: Box<TurtleValue<'a>>,
     },
     Statement {
         subject: Box<TurtleValue<'a>>,
