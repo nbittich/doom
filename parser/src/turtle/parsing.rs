@@ -260,7 +260,7 @@ where
             separated_list0(
                 delimited(multispace0, tag(";"), multispace0),
                 map(
-                    pair(extract_iri, alt((extract_literal, extract_object_lists, extract_iri))),
+                    pair(extract_iri, alt((extract_literal, extract_iri))),
                     |(predicate, objects)| TurtleValue::PredicateObject {
                         predicate: Box::new(predicate),
                         object: Box::new(objects),
@@ -274,7 +274,7 @@ where
             remaining,
             TurtleValue::Statement {
                 subject: Box::new(subject),
-                predicates: list,
+                predicate_objects: list,
             },
         ))
     }

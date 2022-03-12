@@ -17,7 +17,7 @@ pub enum TurtleValue<'a> {
     },
     Statement {
         subject: Box<TurtleValue<'a>>,
-        predicates: Vec<TurtleValue<'a>>,
+        predicate_objects: Vec<TurtleValue<'a>>,
     },
 }
 #[derive(PartialEq, Debug)]
