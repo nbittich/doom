@@ -116,7 +116,6 @@ fn extract_iri(s: &str) -> IResult<&str, TurtleValue> {
 }
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
-
 // EXTRACT LITERALS
 // -----------------------------------------------------------------------------------------------------------------------------------------
 fn parse_boolean(s: &str) -> IResult<&str, bool> {
@@ -226,55 +225,59 @@ fn extract_literal(s: &str) -> IResult<&str, TurtleValue> {
 }
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
-
-
-
-
 // TODO nested + unlabeled bnode
 fn extract_unlabeled_bnode(s: &str) -> IResult<&str, (Option<&str>, TurtleValue)> {
-    let extract_unlabeled = delimited(char('['), take_until("]"), char(']'));
-    map(extract_unlabeled, |v: &str| {
-        let mut rng = ThreadRng::default();
-        let random_id: String = (&mut rng)
-            .sample_iter(Alphanumeric)
-            .take(7)
-            .map(char::from)
-            .map(|c| c.to_ascii_lowercase())
-            .collect();
-        if v.is_empty() {
-            (None, TurtleValue::BNode(BlankNode::Unlabeled(random_id)))
-        } else {
-            (Some(v), TurtleValue::BNode(BlankNode::Unlabeled(random_id)))
-        }
-    })(s)
-}
+    let app = preceded(char('['), terminated(opt(
+        predicate_lists(|s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled))))
+    ), char(']')))(s);
+    todo!()
+} 
 
 fn extract_object_lists(s: &str) -> IResult<&str, TurtleValue> {
-    map(separated_list0(char(','), alt((extract_iri, extract_literal))), TurtleValue::ObjectList)(s)
+    map(
+        separated_list0(char(','), alt((extract_iri, extract_literal))),
+        TurtleValue::ObjectList,
+    )(s)
 }
 
-fn predicate_lists(s: &str) -> IResult<&str, TurtleValue> {
-    let (remaining, subject) = extract_iri(s)?; // TODO handle other cases
-    let (remaining, list) = preceded(
-        multispace0,
-        separated_list0(
-            delimited(multispace0, tag(";"), multispace0),
-            map(pair(extract_iri, extract_object_lists),|(predicate, objects)| TurtleValue::PredicateObjectList{
-                predicate: Box::new(predicate),
-                object_list: Box::new(objects),
-            }),
-        ),
-    )(remaining)?;
-//(subject, list)
-    let (remaining, terminated_dot) = preceded(multispace0, char('.'))(remaining)?;
+fn predicate_lists<'a, F>(
+    mut subject_extractor: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
+where
+    F: FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>,
+{
+    move |s| {
+        let (remaining, subject) = subject_extractor(s)?; // TODO handle other cases
 
-    Ok((remaining, TurtleValue::Statement{ subject: Box::new(subject), predicates: list }))
+        let (remaining, list) = preceded(
+            multispace0,
+            separated_list0(
+                delimited(multispace0, tag(";"), multispace0),
+                map(
+                    pair(extract_iri, extract_object_lists),
+                    |(predicate, objects)| TurtleValue::PredicateObjectList {
+                        predicate: Box::new(predicate),
+                        object_list: Box::new(objects),
+                    },
+                ),
+            ),
+        )(s)?;
+        // let (remaining, _) = preceded(multispace0, alt((tag("."), eof)))(remaining)?;
+
+        Ok((
+            remaining,
+            TurtleValue::Statement {
+                subject: Box::new(subject),
+                predicates: list,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::turtle::model::{BlankNode, Iri};
-    use crate::turtle::parsing::{extract_labeled_bnode, extract_unlabeled_bnode};
+    use crate::turtle::parsing::extract_labeled_bnode;
 
     use super::{extract_base, extract_prefix, extract_prefixed_iri, TurtleValue};
     use std::collections::HashMap;
@@ -378,41 +381,39 @@ mod test {
     }
     #[test]
     fn extract_unlabeled_bnode_test() {
-        let s = "[]";
-        let res = extract_unlabeled_bnode(s);
-        dbg!(res);
-        let s = r#"[ foaf:name "Alice" ]"#;
-        let res = extract_unlabeled_bnode(s);
-        dbg!(res);
+        todo!()
     }
 
     #[test]
     fn predicate_lists_test() {
+        /*
+
         let s = r#"
-            <http://en.wikipedia.org/wiki/Helium>                                                                                  
-            <http://example.org/elements/atomicNumber>  2 ;                                                                              
-            <http://example.org/elements/atomicMass> 4.002602 ;                                                                          
-            <http://example.org/elements/isOk> true ;                                                                          
-            <http://example.org/elements/isNotOk> false ;                                                                          
-            <http://example.org/elements/specificGravity> 1.663E-4 .     
+            <http://en.wikipedia.org/wiki/Helium>
+            <http://example.org/elements/atomicNumber>  2 ;
+            <http://example.org/elements/atomicMass> 4.002602 ;
+            <http://example.org/elements/isOk> true ;
+            <http://example.org/elements/isNotOk> false ;
+            <http://example.org/elements/specificGravity> 1.663E-4 .
         "#;
         let (remaining, res) = predicate_lists(s).unwrap();
         dbg!(&res);
         let s = r#"
-            _:helium <http://example.org/elements/atomicNumber>  "2".                                                                           
+            _:helium <http://example.org/elements/atomicNumber>  "2".
         "#;
         let (remaining, res) = predicate_lists(s).unwrap();
         dbg!(&res);
 
         let s = r#"
-            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".                                                                           
-            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".                                                                           
+            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
+            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
         "#;
         let (remaining, res) = predicate_lists(s).unwrap();
         let s = r#"
-            <http://example.org/#spiderman> <http://xmlns.com/foaf/0.1/name> "Spiderman", "Человек-паук"@ru .                                                                         
+            <http://example.org/#spiderman> <http://xmlns.com/foaf/0.1/name> "Spiderman", "Человек-паук"@ru .
         "#;
         let (remaining, res) = predicate_lists(s).unwrap();
         dbg!(res);
+         */
     }
 }

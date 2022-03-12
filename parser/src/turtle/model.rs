@@ -43,5 +43,5 @@ pub enum Literal<'a> {
 #[derive(PartialEq, Debug)]
 pub enum BlankNode<'a> {
     Labeled(&'a str),
-    Unlabeled(String),
+    Unlabeled,
 }
