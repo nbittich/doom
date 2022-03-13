@@ -15,9 +15,9 @@ use nom::{
         take_while1,
     },
     character::{complete::*, is_alphanumeric, is_space},
-    combinator::{all_consuming, eof, map, opt, peek, recognize},
+    combinator::{all_consuming, cut, eof, map, opt, peek, recognize},
     error::{make_error, Error, ErrorKind},
-    multi::{many0, separated_list0},
+    multi::{many0, separated_list0, separated_list1},
     number::complete::{double, float, recognize_float},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
     AsChar, IResult, InputIter, ParseTo, Parser,
@@ -33,34 +33,8 @@ use super::model::{
     BlankNode, Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE,
 };
 
-fn extract_prefixed_iri(s: &str) -> IResult<&str, TurtleValue> {
-    let mut extract_prefixed = map(
-        separated_pair(
-            take_while(|s: char| s.is_alphanumeric()),
-            tag(":"),
-            take_while(|s: char| !s.is_whitespace()),
-        ),
-        |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
-    );
-    map(preceded(multispace0, extract_prefixed), TurtleValue::Iri)(s)
-}
-
-fn extract_enclosed_iri(s: &str) -> IResult<&str, TurtleValue> {
-    let mut extract_enclosed = map(
-        delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
-        Iri::Enclosed,
-    );
-
-    map(preceded(multispace0, extract_enclosed), TurtleValue::Iri)(s)
-}
-fn extract_iri(s: &str) -> IResult<&str, TurtleValue> {
-    alt((
-        extract_enclosed_iri,
-        extract_prefixed_iri,
-        extract_labeled_bnode,
-    ))(s)
-}
-
+// BASE & PREFIX
+// -----------------------------------------------------------------------------------------------------------------------------------------
 fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
     let (remaining, base) = preceded(
         multispace0,
@@ -99,25 +73,20 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
         }
     }
 }
+// -----------------------------------------------------------------------------------------------------------------------------------------
 
-// TODO nested + unlabeled bnode
-
-fn extract_unlabeled_bnode(s: &str) -> IResult<&str, (Option<&str>, TurtleValue)> {
-    let extract_unlabeled = delimited(char('['), take_until("]"), char(']'));
-    map(extract_unlabeled, |v: &str| {
-        let mut rng = ThreadRng::default();
-        let random_id: String = (&mut rng)
-            .sample_iter(Alphanumeric)
-            .take(7)
-            .map(char::from)
-            .map(|c| c.to_ascii_lowercase())
-            .collect();
-        if v.is_empty() {
-            (None, TurtleValue::BNode(BlankNode::Unlabeled(random_id)))
-        } else {
-            (Some(v), TurtleValue::BNode(BlankNode::Unlabeled(random_id)))
-        }
-    })(s)
+// EXTRACT IRI
+// -----------------------------------------------------------------------------------------------------------------------------------------
+fn extract_prefixed_iri(s: &str) -> IResult<&str, TurtleValue> {
+    let mut extract_prefixed = map(
+        separated_pair(
+            take_while(|s: char| s.is_alphanumeric()),
+            tag(":"),
+            take_while(|s: char| !s.is_whitespace()),
+        ),
+        |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
+    );
+    map(preceded(multispace0, extract_prefixed), TurtleValue::Iri)(s)
 }
 fn extract_labeled_bnode(s: &str) -> IResult<&str, TurtleValue<'_>> {
     let mut parse_labeled_bnode =
@@ -130,7 +99,26 @@ fn extract_labeled_bnode(s: &str) -> IResult<&str, TurtleValue<'_>> {
     }
     Ok((remaining, TurtleValue::BNode(BlankNode::Labeled(label))))
 }
+fn extract_enclosed_iri(s: &str) -> IResult<&str, TurtleValue> {
+    let mut extract_enclosed = map(
+        delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
+        Iri::Enclosed,
+    );
 
+    map(preceded(multispace0, extract_enclosed), TurtleValue::Iri)(s)
+}
+fn extract_iri(s: &str) -> IResult<&str, TurtleValue> {
+    alt((
+        extract_enclosed_iri,
+        extract_prefixed_iri,
+        extract_labeled_bnode,
+        extract_unlabeled_bnode,
+    ))(s)
+}
+// -----------------------------------------------------------------------------------------------------------------------------------------
+
+// EXTRACT LITERALS
+// -----------------------------------------------------------------------------------------------------------------------------------------
 fn parse_boolean(s: &str) -> IResult<&str, bool> {
     let (remaining, val) = terminated(
         map(alt((tag("true"), tag("false"))), |b: &str| {
@@ -189,7 +177,7 @@ fn extract_string_literal(s: &str) -> IResult<&str, TurtleValue> {
     let mut single_quote_literal = delimited(tag("'"), take_until1("'"), tag("'"));
     let mut double_quote_literal = delimited(char('"'), take_until1(r#"""#), char('"'));
     let mut multiline_quote_literal =
-        delimited(tag(r#"""""#), take_until1(r#"""""#), tag(r#"""""#));
+        delimited(tag(r#"'''"#), take_until1(r#"'''"#), tag(r#"'''"#));
     let mut extract_datatype = preceded(tag("^^"), extract_iri);
 
     fn extract_lang(s: &str) -> IResult<&str, &str> {
@@ -236,32 +224,70 @@ fn extract_string_literal(s: &str) -> IResult<&str, TurtleValue> {
 fn extract_literal(s: &str) -> IResult<&str, TurtleValue> {
     alt((extract_string_literal, extract_primitive_literal))(s)
 }
+// -----------------------------------------------------------------------------------------------------------------------------------------
 
-fn extract_object_lists(s: &str) -> IResult<&str, Vec<TurtleValue>> {
-    separated_list0(char(','), alt((extract_iri, extract_literal)))(s)
+// TODO nested + unlabeled bnode
+fn extract_unlabeled_bnode(s: &str) -> IResult<&str, TurtleValue> {
+    let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
+    let mut extract = preceded(
+        char('['),
+        terminated(
+            alt((predicate_lists(unlabeled_subject), unlabeled_subject)),
+            preceded(multispace0, cut(char(']'))),
+        ),
+    );
+    preceded(multispace0, extract)(s)
 }
 
-fn predicate_lists(s: &str) -> IResult<&str, (TurtleValue, Vec<(TurtleValue, Vec<TurtleValue>)>)> {
-    let (remaining, subject) = extract_iri(s)?; // TODO handle other cases
-    let (remaining, list) = preceded(
-        multispace0,
-        separated_list0(
-            delimited(multispace0, tag(";"), multispace0),
-            pair(extract_iri, extract_object_lists),
-        ),
-    )(remaining)?;
+fn extract_object_lists(s: &str) -> IResult<&str, TurtleValue> {
+    map(
+        separated_list0(char(','), alt((extract_iri, extract_literal))),
+        TurtleValue::ObjectList,
+    )(s)
+}
 
-    let (remaining, terminated_dot) = preceded(multispace0, char('.'))(remaining)?;
+fn predicate_lists<'a, F>(
+    mut subject_extractor: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
+where
+    F: FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>,
+{
+    move |s| {
+        let (remaining, subject) = subject_extractor(s)?; // TODO handle other cases
 
-    Ok((remaining, (subject, list)))
+        let (remaining, list) = preceded(
+            multispace0,
+            separated_list1(
+                delimited(multispace0, tag(";"), multispace0),
+                map(
+                    pair(extract_iri, alt((extract_literal, extract_iri))),
+                    |(predicate, objects)| TurtleValue::PredicateObject {
+                        predicate: Box::new(predicate),
+                        object: Box::new(objects),
+                    },
+                ),
+            ),
+        )(remaining)?;
+        // let (remaining, _) = preceded(multispace0, alt((tag("."), eof)))(remaining)?;
+
+        Ok((
+            remaining,
+            TurtleValue::Statement {
+                subject: Box::new(subject),
+                predicate_objects: list,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::turtle::model::{BlankNode, Iri};
-    use crate::turtle::parsing::{extract_labeled_bnode, extract_unlabeled_bnode};
+    use crate::turtle::parsing::{extract_iri, extract_labeled_bnode};
 
-    use super::{extract_base, extract_prefix, extract_prefixed_iri, TurtleValue};
+    use super::{
+        extract_base, extract_prefix, extract_prefixed_iri, extract_unlabeled_bnode, TurtleValue,
+    };
     use std::collections::HashMap;
     use std::rc::Rc;
 
@@ -361,47 +387,52 @@ mod test {
             res
         );
     }
-    #[test]
-    fn extract_unlabeled_bnode_test() {
-        let s = "[]";
-        let res = extract_unlabeled_bnode(s);
-        dbg!(res);
-        let s = r#"[ foaf:name "Alice" ]"#;
-        let res = extract_unlabeled_bnode(s);
-        dbg!(res);
-    }
 
     #[test]
     fn predicate_lists_test() {
         let s = r#"
-            <http://en.wikipedia.org/wiki/Helium>                                                                                  
-            <http://example.org/elements/atomicNumber>  2 ;                                                                              
-            <http://example.org/elements/atomicMass> 4.002602 ;                                                                          
-            <http://example.org/elements/isOk> true ;                                                                          
-            <http://example.org/elements/isNotOk> false ;                                                                          
-            <http://example.org/elements/specificGravity> 1.663E-4 .     
+            <http://en.wikipedia.org/wiki/Helium>
+            <http://example.org/elements/atomicNumber>  2 ;
+            <http://example.org/elements/atomicMass> 4.002602 ;
+            <http://example.org/elements/isOk> true ;
+            <http://example.org/elements/isNotOk> false ;
+            <http://example.org/elements/specificGravity> 1.663E-4 .
         "#;
-        let (remaining, res) = predicate_lists(s).unwrap();
-        assert_eq!(5, res.1.len());
+        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
         dbg!(&res);
         let s = r#"
-            _:helium <http://example.org/elements/atomicNumber>  "2".                                                                           
+            _:helium <http://example.org/elements/atomicNumber>  "2".
         "#;
-        let (remaining, res) = predicate_lists(s).unwrap();
-        assert_eq!(1, res.1.len());
+        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
         dbg!(&res);
 
         let s = r#"
-            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".                                                                           
-            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".                                                                           
+            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
+            <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
         "#;
-        let (remaining, res) = predicate_lists(s).unwrap();
-        assert_eq!(1, res.1.len());
+        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
         let s = r#"
-            <http://example.org/#spiderman> <http://xmlns.com/foaf/0.1/name> "Spiderman", "Человек-паук"@ru .                                                                         
+            <http://example.org/#spiderman> <http://xmlns.com/foaf/0.1/name> "Spiderman", "Человек-паук"@ru .
         "#;
-        let (remaining, res) = predicate_lists(s).unwrap();
-        assert_eq!(1, res.1.len());
-        assert_eq!(2, res.1[0].1.len());
+        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
+        dbg!(res);
+    }
+
+    #[test]
+    fn unlabeled_nested_bnode() {
+        let s = r#"
+        [ foaf:name "Alice" ] foaf:knows [
+    foaf:name "Bob" ;
+    foaf:knows [
+        foaf:name "Eve" ] ;
+    foaf:mbox <bob@example.com> ] .
+				
+        "#;
+        let res = predicate_lists(extract_iri)(s);
+        dbg!(res);
+
+        let s = r#"[] foaf:knows [ foaf:name "Bob" ] ."#;
+        let res = predicate_lists(extract_iri)(s);
+        dbg!(res);
     }
 }

@@ -10,7 +10,15 @@ pub enum TurtleValue<'a> {
     Iri(Iri<'a>),
     Literal(Literal<'a>),
     BNode(BlankNode<'a>),
-    OrderedList(Vec<TurtleValue<'a>>),
+    ObjectList(Vec<TurtleValue<'a>>),
+    PredicateObject {
+        predicate: Box<TurtleValue<'a>>,
+        object: Box<TurtleValue<'a>>,
+    },
+    Statement {
+        subject: Box<TurtleValue<'a>>,
+        predicate_objects: Vec<TurtleValue<'a>>,
+    },
 }
 #[derive(PartialEq, Debug)]
 pub enum Iri<'a> {
@@ -35,5 +43,5 @@ pub enum Literal<'a> {
 #[derive(PartialEq, Debug)]
 pub enum BlankNode<'a> {
     Labeled(&'a str),
-    Unlabeled(String),
+    Unlabeled,
 }
