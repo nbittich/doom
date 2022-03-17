@@ -46,3 +46,5 @@ pub enum BlankNode<'a> {
     Labeled(&'a str),
     Unlabeled,
 }
+#[derive(PartialEq, Debug)]
+pub struct TurtleDoc<'a>(pub Vec<TurtleValue<'a>>);

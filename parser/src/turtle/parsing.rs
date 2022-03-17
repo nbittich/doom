@@ -1,27 +1,10 @@
-#![allow(
-    dead_code,
-    unused_variables,
-    unused_mut,
-    unused_imports,
-    unused_must_use
-)]
-
 use std::collections::HashMap;
+use std::ops::RangeBounds;
 
-use nom::{
-    branch::alt,
-    bytes::complete::{
-        tag, tag_no_case, take, take_till, take_till1, take_until, take_until1, take_while,
-        take_while1,
-    },
-    character::{complete::*, is_alphanumeric, is_space},
-    combinator::{all_consuming, cut, eof, map, opt, peek, recognize},
-    error::{make_error, Error, ErrorKind},
-    multi::{many0, separated_list0, separated_list1},
-    number::complete::{double, float, recognize_float},
-    sequence::{delimited, pair, preceded, separated_pair, terminated},
-    AsChar, IResult, InputIter, ParseTo, Parser,
-};
+pub use crate::grammar::*;
+pub use crate::prelude::*;
+use crate::shared::NS_TYPE;
+
 use rand::{distributions::Alphanumeric, prelude::ThreadRng, Rng};
 
 use crate::{
@@ -29,21 +12,29 @@ use crate::{
     turtle::model::Literal,
 };
 
+use super::model::TurtleDoc;
 use super::model::{
     BlankNode, Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE,
 };
 
+fn comments(s: &str) -> IResult<&str, Vec<&str>> {
+    many0(delimited(multispace0,
+        preceded(char('#'), take_until("\n")),
+        line_ending,
+    ))(s)
+}
+
 // BASE & PREFIX
 // -----------------------------------------------------------------------------------------------------------------------------------------
-fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
+fn base(s: &str) -> IResult<&str, TurtleValue<'_>> {
     let (remaining, base) = preceded(
         multispace0,
         tag_no_case(BASE_SPARQL).or(tag_no_case(BASE_TURTLE)),
     )(s)?;
     match base {
-        BASE_SPARQL => map(extract_enclosed_iri, |iri| TurtleValue::Base(Box::new(iri)))(remaining),
+        BASE_SPARQL => map(enclosed_iri, |iri| TurtleValue::Base(Box::new(iri)))(remaining),
         BASE_TURTLE => map(
-            terminated(extract_enclosed_iri, preceded(multispace0, char('.'))),
+            terminated(enclosed_iri, preceded(multispace0, char('.'))),
             |iri| TurtleValue::Base(Box::new(iri)),
         )(remaining),
         _ => {
@@ -52,7 +43,7 @@ fn extract_base(s: &str) -> IResult<&str, TurtleValue<'_>> {
         }
     }
 }
-fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
+fn prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
     let (remaining, prefix) = preceded(
         multispace0,
         tag_no_case(PREFIX_SPARQL).or(tag_no_case(PREFIX_TURTLE)),
@@ -60,7 +51,7 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
     let mut get_prefix = preceded(
         multispace0,
         map(
-            separated_pair(take_until(":"), tag(":"), extract_enclosed_iri),
+            separated_pair(take_until(":"), tag(":"), enclosed_iri),
             |(prefix, iri)| TurtleValue::Prefix((prefix, Box::new(iri))),
         ),
     );
@@ -77,45 +68,58 @@ fn extract_prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
 
 // EXTRACT IRI
 // -----------------------------------------------------------------------------------------------------------------------------------------
-fn extract_prefixed_iri(s: &str) -> IResult<&str, TurtleValue> {
-    let mut extract_prefixed = map(
-        separated_pair(
-            take_while(|s: char| s.is_alphanumeric()),
-            tag(":"),
-            take_while(|s: char| s.is_alphanumeric() || s == '-'), // TODO ESCAPED =>  ~.-!$&'()*+,;=/?#@%_
-        ),
-        |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
-    );
-    map(preceded(multispace0, extract_prefixed), TurtleValue::Iri)(s)
-}
-fn extract_labeled_bnode(s: &str) -> IResult<&str, TurtleValue<'_>> {
-    let mut parse_labeled_bnode =
-        delimited(tag("_:"), take_while(|s: char| !s.is_whitespace()), space0);
-    let (remaining, _) = multispace0(s)?;
-    let (remaining, label) = parse_labeled_bnode(remaining)?;
-    if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
-        let err: Error<&str> = make_error(label, ErrorKind::IsNot);
-        return Err(nom::Err::Error(err));
-    }
-    Ok((remaining, TurtleValue::BNode(BlankNode::Labeled(label))))
-}
-fn extract_enclosed_iri(s: &str) -> IResult<&str, TurtleValue> {
-    let mut extract_enclosed = map(
-        delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
-        Iri::Enclosed,
-    );
 
-    map(preceded(multispace0, extract_enclosed), TurtleValue::Iri)(s)
+fn object_lists(s: &str) -> IResult<&str, TurtleValue> {
+    let (remaining, mut list) = separated_list1(char(','), object)(s)?;
+    if list.len() > 1 {
+        return Ok((remaining, TurtleValue::ObjectList(list)));
+    } else {
+        if let Some(single_value) = list.pop() {
+            return Ok((remaining, single_value));
+        } else {
+            let err: Error<&str> = make_error(s, ErrorKind::LengthValue);
+            return Err(nom::Err::Error(err));
+        }
+    }
 }
-fn extract_iri(s: &str) -> IResult<&str, TurtleValue> {
-    alt((
-        extract_enclosed_iri,
-        extract_prefixed_iri,
-        extract_labeled_bnode,
-        extract_unlabeled_bnode,
-        extract_collection,
-    ))(s)
+
+
+
+fn predicate_lists<'a, F>(
+    mut subject_extractor: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
+where
+    F: FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>,
+{
+    move |s| {
+        let (remaining, subject) = subject_extractor(s)?; // TODO handle other cases
+
+        let (remaining, list) = preceded(
+            multispace0,
+            separated_list1(
+                delimited(multispace0, tag(";"), comments),
+                map(
+                    pair(predicate, object_lists),
+                    |(predicate, objects)| TurtleValue::PredicateObject {
+                        predicate: Box::new(predicate),
+                        object: Box::new(objects),
+                    },
+                ),
+            ),
+        )(remaining)?;
+        // let (remaining, _) = preceded(multispace0, alt((tag("."), eof)))(remaining)?;
+
+        Ok((
+            remaining,
+            TurtleValue::Statement {
+                subject: Box::new(subject),
+                predicate_objects: list,
+            },
+        ))
+    }
 }
+// new version
+
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
 // EXTRACT LITERALS
@@ -157,7 +161,7 @@ fn parse_number(s: &str) -> IResult<&str, Literal> {
     }
 }
 
-fn extract_primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
+fn primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
     let (no_white_space, _) = multispace0(s)?;
 
     if let Ok((remaining, boolean_value)) = parse_boolean(no_white_space) {
@@ -174,25 +178,42 @@ fn extract_primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 // TODO handle primitive literal datatype when sharing prefix
-fn extract_string_literal(s: &str) -> IResult<&str, TurtleValue> {
-    let mut single_quote_literal = delimited(tag("'"), take_until1("'"), tag("'"));
-    let mut double_quote_literal = delimited(char('"'), take_until1(r#"""#), char('"'));
-    let mut multiline_quote_literal =
-        delimited(tag(r#"'''"#), take_until1(r#"'''"#), tag(r#"'''"#));
-    let mut extract_datatype = preceded(tag("^^"), extract_iri);
+fn string_literal(s: &str) -> IResult<&str, TurtleValue> {
+    let mut single_quote_literal = delimited(
+        tag(STRING_LITERAL_SINGLE_QUOTE),
+        take_until1(STRING_LITERAL_SINGLE_QUOTE),
+        tag(STRING_LITERAL_SINGLE_QUOTE),
+    );
+    let mut double_quote_literal = delimited(
+        tag(STRING_LITERAL_QUOTE),
+        take_until1(STRING_LITERAL_QUOTE),
+        tag(STRING_LITERAL_QUOTE),
+    );
+    let mut long_single_quote_literal = delimited(
+        tag(STRING_LITERAL_LONG_SINGLE_QUOTE),
+        take_until1(STRING_LITERAL_LONG_SINGLE_QUOTE),
+        tag(STRING_LITERAL_LONG_SINGLE_QUOTE),
+    );
+    let mut long_quote_literal = delimited(
+        tag(STRING_LITERAL_LONG_QUOTE),
+        take_until1(STRING_LITERAL_LONG_QUOTE),
+        tag(STRING_LITERAL_LONG_QUOTE),
+    );
+    let mut datatype = preceded(tag("^^"), iri);
 
-    fn extract_lang(s: &str) -> IResult<&str, &str> {
-        preceded(char('@'), take_while(|a: char| a.is_alpha() || a == '-'))(s)
+    fn lang(s: &str) -> IResult<&str, &str> {
+        preceded(tag(LANGTAG), take_while(|a: char| a.is_alpha() || a == '-'))(s)
     }
 
     let (no_white_space, _) = multispace0(s)?;
     let (remaining, string_literal) = alt((
         single_quote_literal,
         double_quote_literal,
-        multiline_quote_literal,
+        long_quote_literal,
+        long_single_quote_literal,
     ))(no_white_space)?;
 
-    if let Ok((remaining, datatype)) = extract_datatype(remaining) {
+    if let Ok((remaining, datatype)) = datatype(remaining) {
         Ok((
             remaining,
             TurtleValue::Literal(Literal::Quoted {
@@ -201,7 +222,7 @@ fn extract_string_literal(s: &str) -> IResult<&str, TurtleValue> {
                 lang: None,
             }),
         ))
-    } else if let Ok((remaining, lang)) = extract_lang(remaining) {
+    } else if let Ok((remaining, lang)) = lang(remaining) {
         Ok((
             remaining,
             TurtleValue::Literal(Literal::Quoted {
@@ -222,29 +243,28 @@ fn extract_string_literal(s: &str) -> IResult<&str, TurtleValue> {
     }
 }
 
-fn extract_literal(s: &str) -> IResult<&str, TurtleValue> {
-    alt((extract_string_literal, extract_primitive_literal))(s)
+fn literal(s: &str) -> IResult<&str, TurtleValue> {
+    alt((string_literal, primitive_literal))(s)
 }
 // -----------------------------------------------------------------------------------------------------------------------------------------
-
-fn extract_unlabeled_bnode(s: &str) -> IResult<&str, TurtleValue> {
-    let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
-    let mut extract = preceded(
-        char('['),
-        terminated(
-            alt((predicate_lists(unlabeled_subject), unlabeled_subject)),
-            preceded(multispace0, cut(char(']'))),
+fn prefixed_iri(s: &str) -> IResult<&str, TurtleValue> {
+    let mut prefixed = map(
+        separated_pair(
+            take_while(|s: char| s.is_alphanumeric()),
+            tag(":"),
+            take_while(|s: char| s.is_alphanumeric() || PN_LOCAL_ESC.contains(&s)),
         ),
+        |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
     );
-    preceded(multispace0, extract)(s) // todo probably multispace here useless
+    map(preceded(multispace0, prefixed), TurtleValue::Iri)(s)
 }
 
-fn extract_collection(s: &str) -> IResult<&str, TurtleValue> {
+fn collection(s: &str) -> IResult<&str, TurtleValue> {
     let (remaining, _) = multispace0(s)?;
     let (remaining, res) = preceded(
         char('('),
         terminated(
-            separated_list0(multispace1, extract_object),
+            separated_list0(multispace1, object),
             preceded(multispace0, cut(char(')'))),
         ),
     )(remaining)?;
@@ -255,70 +275,86 @@ fn extract_collection(s: &str) -> IResult<&str, TurtleValue> {
     }
 }
 
-fn extract_object_lists(s: &str) -> IResult<&str, TurtleValue> {
-    let (remaining, mut list) = separated_list1(char(','), extract_object)(s)?;
-    if list.len() > 1 {
-        return Ok((remaining, TurtleValue::ObjectList(list)));
-    } else {
-        if let Some(single_value) = list.pop() {
-            return Ok((remaining, single_value));
-        } else {
-            let err: Error<&str> = make_error(s, ErrorKind::LengthValue);
-            return Err(nom::Err::Error(err));
-        }
+fn anon_bnode(s: &str) -> IResult<&str, TurtleValue> {
+    let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
+    let mut extract = preceded(
+        char('['),
+        terminated(
+            alt((predicate_lists(unlabeled_subject), unlabeled_subject)),
+            preceded(multispace0, cut(char(']'))),
+        ),
+    );
+    preceded(multispace0, extract)(s) // todo probably multispace here useless
+}
+fn labeled_bnode(s: &str) -> IResult<&str, TurtleValue> {
+    let mut parse_labeled_bnode = delimited(
+        tag(BLANK_NODE_LABEL),
+        take_while(|s: char| !s.is_whitespace()),
+        space0,
+    );
+    let (remaining, _) = multispace0(s)?; // todo maybe remove this
+    let (remaining, label) = parse_labeled_bnode(remaining)?;
+    if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
+        let err: Error<&str> = make_error(label, ErrorKind::IsNot);
+        return Err(nom::Err::Error(err));
     }
+    Ok((remaining, TurtleValue::BNode(BlankNode::Labeled(label))))
 }
 
-fn extract_object(s: &str) -> IResult<&str, TurtleValue> {
-    alt((extract_iri, extract_literal))(s)
+fn blank_node(s: &str) -> IResult<&str, TurtleValue> {
+    alt((labeled_bnode, anon_bnode))(s)
 }
 
-fn extract_predicate(s: &str) -> IResult<&str, TurtleValue> {
-    alt((extract_enclosed_iri, extract_prefixed_iri))(s)
+fn enclosed_iri(s: &str) -> IResult<&str, TurtleValue> {
+    let mut enclosed = map(
+        delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
+        Iri::Enclosed,
+    );
+
+    map(preceded(multispace0, enclosed), TurtleValue::Iri)(s)
 }
 
-fn predicate_lists<'a, F>(
-    mut subject_extractor: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
-where
-    F: FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>,
-{
-    move |s| {
-        let (remaining, subject) = subject_extractor(s)?; // TODO handle other cases
+fn iri(s: &str) -> IResult<&str, TurtleValue> {
+    alt((prefixed_iri, enclosed_iri))(s)
+}
 
-        let (remaining, list) = preceded(
-            multispace0,
-            separated_list1(
-                delimited(multispace0, tag(";"), multispace0),
-                map(
-                    pair(extract_predicate, extract_object_lists),
-                    |(predicate, objects)| TurtleValue::PredicateObject {
-                        predicate: Box::new(predicate),
-                        object: Box::new(objects),
-                    },
-                ),
-            ),
-        )(remaining)?;
-        // let (remaining, _) = preceded(multispace0, alt((tag("."), eof)))(remaining)?;
+fn subject(s: &str) -> IResult<&str, TurtleValue> {
+    alt((blank_node, iri,  collection))(s)
+}
+fn predicate(s: &str) -> IResult<&str, TurtleValue> {
+    alt((map(
+        terminated(char('a'), multispace1),
+        |s| TurtleValue::Iri(Iri::Enclosed(NS_TYPE))
+    ), iri))(s)
+}
+fn object(s: &str) -> IResult<&str, TurtleValue> {
+    alt((iri, blank_node, collection, literal))(s) // NORDIne
+}
 
-        Ok((
-            remaining,
-            TurtleValue::Statement {
-                subject: Box::new(subject),
-                predicate_objects: list,
-            },
-        ))
-    }
+fn triples(s: &str) ->IResult<&str, TurtleValue> {
+   terminated(predicate_lists(subject),preceded(multispace0, tag(".")))(s)
+}
+
+fn directive(s: &str) ->IResult<&str, TurtleValue> {
+    alt((base, prefix))(s)
+}
+
+fn statement(s: &str) ->IResult<&str, TurtleValue> {
+    preceded(comments, alt((directive, triples)))(s)
+}
+
+fn turtle_doc(s: &str) -> IResult<&str, TurtleDoc> {
+    map(many0(statement), TurtleDoc)(s)
 }
 
 #[cfg(test)]
 mod test {
     use crate::turtle::model::{BlankNode, Iri};
-    use crate::turtle::parsing::{extract_iri, extract_labeled_bnode};
+    use crate::turtle::parsing::{iri, labeled_bnode, subject, triples};
 
     use super::{
-        extract_base, extract_collection, extract_prefix, extract_prefixed_iri,
-        extract_unlabeled_bnode, TurtleValue,
+        base, collection, prefix, prefixed_iri,
+        anon_bnode, TurtleValue, turtle_doc,
     };
     use std::collections::HashMap;
     use std::rc::Rc;
@@ -336,7 +372,7 @@ mod test {
              @base    <http://one.example/turtle> .
         "#;
 
-        let (remaining, base_turtle) = extract_base(base_turtle).unwrap();
+        let (remaining, base_turtle) = base(base_turtle).unwrap();
         assert_eq!(
             TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
                 "http://one.example/turtle"
@@ -344,7 +380,7 @@ mod test {
             base_turtle
         );
 
-        let (remaining, base_sparql) = extract_base(base_sparql).unwrap();
+        let (remaining, base_sparql) = base(base_sparql).unwrap();
         assert_eq!(
             TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
                 "http://one.example/sparql"
@@ -368,7 +404,7 @@ mod test {
              @prefix    :    <http://two.example/empty> .
         "#;
 
-        let (remaining, prefix_turtle) = extract_prefix(prefix_turtle).unwrap();
+        let (remaining, prefix_turtle) = prefix(prefix_turtle).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "p",
@@ -376,7 +412,7 @@ mod test {
             )),
             prefix_turtle
         );
-        let (remaining, prefix_empty_turtle) = extract_prefix(prefix_empty_turtle).unwrap();
+        let (remaining, prefix_empty_turtle) = prefix(prefix_empty_turtle).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "",
@@ -385,7 +421,7 @@ mod test {
             prefix_empty_turtle
         );
 
-        let (remaining, prefix_sparql) = extract_prefix(prefix_sparql).unwrap();
+        let (remaining, prefix_sparql) = prefix(prefix_sparql).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "p",
@@ -394,11 +430,11 @@ mod test {
             prefix_sparql
         );
     }
-
+ 
     #[test]
-    fn extract_prefixed_iri_test() {
+    fn prefixed_iri_test() {
         let s = "foaf:firstName";
-        let res = extract_prefixed_iri(s);
+        let res = prefixed_iri(s);
         assert_eq!(
             Ok((
                 "",
@@ -410,16 +446,18 @@ mod test {
             res
         );
     }
+    
     #[test]
-    fn extract_labeled_bnode_test() {
+    fn labeled_bnode_test() {
         let s = "_:alice";
-        let res = extract_labeled_bnode(s);
+        let res = labeled_bnode(s);
         assert_eq!(
             Ok(("", TurtleValue::BNode(BlankNode::Labeled("alice")))),
             res
         );
     }
 
+    
     #[test]
     fn predicate_lists_test() {
         let s = r#"
@@ -430,23 +468,28 @@ mod test {
             <http://example.org/elements/isNotOk> false ;
             <http://example.org/elements/specificGravity> 1.663E-4 .
         "#;
-        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
+        let (remaining, res) = triples(s).unwrap();
         dbg!(&res);
         let s = r#"
             _:helium <http://example.org/elements/atomicNumber>  "2".
         "#;
-        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
+        let (remaining, res) = triples(s).unwrap();
         dbg!(&res);
 
         let s = r#"
             <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
             <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
         "#;
-        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
+        let (remaining, res) = triples(s).unwrap();
         let s = r#"
             <http://example.org/#spiderman> <http://xmlns.com/foaf/0.1/name> "Spiderman", "Человек-паук"@ru .
         "#;
-        let (remaining, res) = predicate_lists(extract_iri)(s).unwrap();
+        let (remaining, res) = triples(s).unwrap();
+        dbg!(res);
+        let s = r#"
+            <http://example.org/#spiderman> a person:Person,skos:Concept.
+        "#;
+        let res = triples(s);
         dbg!(res);
     }
 
@@ -461,27 +504,36 @@ mod test {
     foaf:mbox <bob@example.com>] .
 				
         "#;
-        let res = predicate_lists(extract_iri)(s);
+        let res = triples(s);
         dbg!(res);
 
         let s = r#"[] foaf:knows [foaf:name "Bob"] ."#;
-        let res = predicate_lists(extract_iri)(s);
+        let res = triples(s);
         dbg!(res);
     }
 
     #[test]
-    fn extract_collection_test() {
+    fn collection_test() {
         let s = r#":a :b ( "apple" "banana" ) ."#;
-        let res = predicate_lists(extract_iri)(s);
+        let res = triples(s);
         dbg!(res);
         let s = r#"(1 2.0 3E1) :p "w" ."#;
-        let res = predicate_lists(extract_iri)(s);
+        let res = triples(s);
         dbg!(res);
         let s = r#"(1 [:p :q] ( 2 ) ) :p2 :q2 ."#;
-        let res = predicate_lists(extract_iri)(s);
+        let res = triples(s);
         dbg!(res);
         let s = r#":subject :predicate2 () ."#;
-        let res = predicate_lists(extract_iri)(s);
+        let res = triples(s);
         dbg!(res);
+    }
+
+
+
+    #[test]
+    fn turtle_doc_test(){
+        let doc = include_str!("./example/turtle_doc.ttl");
+        let res = turtle_doc(doc).unwrap();
+        dbg!(res.0);
     }
 }
