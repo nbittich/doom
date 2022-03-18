@@ -31,6 +31,7 @@ enum Node<'a> {
     Iri(Cow<'a, str>),
     Literal(Literal<'a>),
     Ref(Rc<Node<'a>>),
+    List(Vec<Node<'a>>),
 }
 #[derive(PartialEq, Debug)]
 struct Statement<'a> {
@@ -78,16 +79,52 @@ impl<'a> Model<'a> {
         }
     }
 
-    fn add_statement<'x>(stmt: TurtleValue<'a>, ctx: &'x Context, model: &'x mut Model) {
+    fn add_statement<'x>(
+        stmt: TurtleValue<'a>,
+        ctx: &'x Context,
+        model: &'x mut Model<'a>,
+    ) -> Rc<Node<'a>> {
         if let TurtleValue::Statement {
             subject,
             predicate_objects,
         } = stmt
         {
-            let subject = Self::get_node(*subject, ctx, model);
+            let subject = Rc::new(Self::get_node(*subject, ctx, model));
+            for predicate_object in predicate_objects {
+                if let TurtleValue::PredicateObject { predicate, object } = predicate_object {
+                    let predicate = Self::get_node(*predicate, ctx, model);
+                    let object = Self::get_node(*object, ctx, model);
+                    match object {
+                        Node::List(nodes) => {
+                            let predicate = Rc::new(predicate);
+                            for node in nodes {
+                                model.statements.push(Statement {
+                                    subject: Node::Ref(Rc::clone(&subject)),
+                                    predicate: Node::Ref(Rc::clone(&predicate)),
+                                    object: node,
+                                });
+                            }
+                        }
+                        node @ _ => model.statements.push(Statement {
+                            subject: Node::Ref(Rc::clone(&subject)),
+                            predicate,
+                            object: node,
+                        }),
+                    }
+                } else {
+                    panic!("at this point it should be a predicate_object") // todo error handling
+                }
+            }
+            subject.clone()
+        } else {
+            panic!("not a statement, weird"); // todo it should be a result
         }
     }
-    fn get_node<'x>(value: TurtleValue<'a>, ctx: &'x Context, model: &'x mut Model) -> Node<'a> {
+    fn get_node<'x>(
+        value: TurtleValue<'a>,
+        ctx: &'x Context,
+        model: &'x mut Model<'a>,
+    ) -> Node<'a> {
         match value {
             TurtleValue::Iri(Iri::Prefixed { prefix, local_name }) => {
                 let prefix = *ctx.prefixes.get(prefix).expect("prefix not found");
