@@ -2,6 +2,7 @@ use crate::shared::DEFAULT_WELL_KNOWN_PREFIX;
 use crate::turtle::model::{BlankNode, Iri, TurtleValue};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::rc::Rc;
 use uuid::adapter::Urn;
 use uuid::Uuid;
 
@@ -29,7 +30,9 @@ enum Literal<'a> {
 enum Node<'a> {
     Iri(Cow<'a, str>),
     Literal(Literal<'a>),
+    Ref(Rc<Node<'a>>),
 }
+#[derive(PartialEq, Debug)]
 struct Statement<'a> {
     subject: Node<'a>,
     predicate: Node<'a>,
@@ -38,34 +41,33 @@ struct Statement<'a> {
 struct Model<'a> {
     statements: Vec<Statement<'a>>,
 }
-impl<'a> TurtleDoc<'a> {
-    fn new(values: Vec<TurtleValue<'a>>) -> Self {
+impl<'a> Model<'a> {
+    fn new(turtle_values: Vec<TurtleValue<'a>>) -> Self {
         let mut context = Context {
             base: None,
             prefixes: HashMap::new(),
         };
         let mut model = Model { statements: vec![] };
 
-        for value in values.into_iter() {
-            match value {
+        for turtle_value in turtle_values {
+            match turtle_value {
                 TurtleValue::Base(base) => {
-                    context.base = Some(TurtleDoc::extract_iri(base));
+                    context.base = Some(Model::extract_iri(base));
                 }
                 TurtleValue::Prefix((prefix, iri)) => {
-                    let iri = TurtleDoc::extract_iri(iri);
+                    let iri = Model::extract_iri(iri);
                     context.prefixes.insert(prefix, iri);
                 }
-                TurtleValue::Statement {
-                    predicate_objects,
-                    subject,
+                statement @ TurtleValue::Statement {
+                    subject: _,
+                    predicate_objects: _,
                 } => {
-                    let subject = Self::get_node(*subject, &context, &mut model);
+                    Self::add_statement(statement, &context, &mut model);
                 }
                 _ => panic!("only directive & statement allowed!"), // todo should be an error result
             }
         }
-
-        todo!()
+        model
     }
 
     fn extract_iri(value: Box<TurtleValue>) -> &str {
@@ -73,6 +75,16 @@ impl<'a> TurtleDoc<'a> {
             iri
         } else {
             panic!("base not good"); // todo return error
+        }
+    }
+
+    fn add_statement<'x>(stmt: TurtleValue<'a>, ctx: &'x Context, model: &'x mut Model) {
+        if let TurtleValue::Statement {
+            subject,
+            predicate_objects,
+        } = stmt
+        {
+            let subject = Self::get_node(*subject, ctx, model);
         }
     }
     fn get_node<'x>(value: TurtleValue<'a>, ctx: &'x Context, model: &'x mut Model) -> Node<'a> {
