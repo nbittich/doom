@@ -5,17 +5,15 @@ pub use crate::grammar::*;
 pub use crate::prelude::*;
 use crate::shared::NS_TYPE;
 
-use rand::{distributions::Alphanumeric, prelude::ThreadRng, Rng};
-
 use crate::{
     shared::{LANG_LITERAL, RDF_NIL, XSD_STRING},
     turtle::model::Literal,
 };
 
-use super::model::TurtleDoc;
 use super::model::{
     BlankNode, Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE,
 };
+use super::turtle_doc::TurtleDoc;
 
 fn comments(s: &str) -> IResult<&str, Vec<&str>> {
     many0(delimited(
@@ -105,8 +103,6 @@ where
                 }),
             ),
         )(remaining)?;
-        // let (remaining, _) = preceded(multispace0, alt((tag("."), eof)))(remaining)?;
-
         Ok((
             remaining,
             TurtleValue::Statement {
@@ -528,6 +524,7 @@ mod test {
     fn turtle_doc_test() {
         let doc = include_str!("./example/turtle_doc.ttl");
         let res = turtle_doc(doc).unwrap();
-        dbg!(res.0);
+
+        dbg!(res.1);
     }
 }

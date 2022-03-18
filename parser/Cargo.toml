@@ -11,4 +11,4 @@ homepage = "https://github.com/nbittich/doom"
 
 [dependencies]
 nom = "7.1.0"
-rand = "0.8.5"
+uuid = {version = "0.8.2", features = ["v4"]}
