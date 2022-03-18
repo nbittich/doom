@@ -18,7 +18,8 @@ use super::model::{
 };
 
 fn comments(s: &str) -> IResult<&str, Vec<&str>> {
-    many0(delimited(multispace0,
+    many0(delimited(
+        multispace0,
         preceded(char('#'), take_until("\n")),
         line_ending,
     ))(s)
@@ -83,8 +84,6 @@ fn object_lists(s: &str) -> IResult<&str, TurtleValue> {
     }
 }
 
-
-
 fn predicate_lists<'a, F>(
     mut subject_extractor: F,
 ) -> impl FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
@@ -98,13 +97,12 @@ where
             multispace0,
             separated_list1(
                 delimited(multispace0, tag(";"), comments),
-                map(
-                    pair(predicate, object_lists),
-                    |(predicate, objects)| TurtleValue::PredicateObject {
+                map(pair(predicate, object_lists), |(predicate, objects)| {
+                    TurtleValue::PredicateObject {
                         predicate: Box::new(predicate),
                         object: Box::new(objects),
-                    },
-                ),
+                    }
+                }),
             ),
         )(remaining)?;
         // let (remaining, _) = preceded(multispace0, alt((tag("."), eof)))(remaining)?;
@@ -140,7 +138,7 @@ fn parse_boolean(s: &str) -> IResult<&str, bool> {
 
 fn parse_number(s: &str) -> IResult<&str, Literal> {
     fn try_parse_int(s: &str) -> IResult<&str, i64> {
-        all_consuming(i64)(s)
+        all_consuming(I64)(s)
     }
     fn try_parse_decimal(s: &str) -> IResult<&str, f32> {
         all_consuming(float)(s)
@@ -319,27 +317,29 @@ fn iri(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 fn subject(s: &str) -> IResult<&str, TurtleValue> {
-    alt((blank_node, iri,  collection))(s)
+    alt((blank_node, iri, collection))(s)
 }
 fn predicate(s: &str) -> IResult<&str, TurtleValue> {
-    alt((map(
-        terminated(char('a'), multispace1),
-        |s| TurtleValue::Iri(Iri::Enclosed(NS_TYPE))
-    ), iri))(s)
+    alt((
+        map(terminated(char('a'), multispace1), |s| {
+            TurtleValue::Iri(Iri::Enclosed(NS_TYPE))
+        }),
+        iri,
+    ))(s)
 }
 fn object(s: &str) -> IResult<&str, TurtleValue> {
     alt((iri, blank_node, collection, literal))(s) // NORDIne
 }
 
-fn triples(s: &str) ->IResult<&str, TurtleValue> {
-   terminated(predicate_lists(subject),preceded(multispace0, tag(".")))(s)
+fn triples(s: &str) -> IResult<&str, TurtleValue> {
+    terminated(predicate_lists(subject), preceded(multispace0, tag(".")))(s)
 }
 
-fn directive(s: &str) ->IResult<&str, TurtleValue> {
+fn directive(s: &str) -> IResult<&str, TurtleValue> {
     alt((base, prefix))(s)
 }
 
-fn statement(s: &str) ->IResult<&str, TurtleValue> {
+fn statement(s: &str) -> IResult<&str, TurtleValue> {
     preceded(comments, alt((directive, triples)))(s)
 }
 
@@ -352,10 +352,7 @@ mod test {
     use crate::turtle::model::{BlankNode, Iri};
     use crate::turtle::parsing::{iri, labeled_bnode, subject, triples};
 
-    use super::{
-        base, collection, prefix, prefixed_iri,
-        anon_bnode, TurtleValue, turtle_doc,
-    };
+    use super::{anon_bnode, base, collection, prefix, prefixed_iri, turtle_doc, TurtleValue};
     use std::collections::HashMap;
     use std::rc::Rc;
 
@@ -430,7 +427,7 @@ mod test {
             prefix_sparql
         );
     }
- 
+
     #[test]
     fn prefixed_iri_test() {
         let s = "foaf:firstName";
@@ -446,7 +443,7 @@ mod test {
             res
         );
     }
-    
+
     #[test]
     fn labeled_bnode_test() {
         let s = "_:alice";
@@ -457,7 +454,6 @@ mod test {
         );
     }
 
-    
     #[test]
     fn predicate_lists_test() {
         let s = r#"
@@ -528,10 +524,8 @@ mod test {
         dbg!(res);
     }
 
-
-
     #[test]
-    fn turtle_doc_test(){
+    fn turtle_doc_test() {
         let doc = include_str!("./example/turtle_doc.ttl");
         let res = turtle_doc(doc).unwrap();
         dbg!(res.0);
