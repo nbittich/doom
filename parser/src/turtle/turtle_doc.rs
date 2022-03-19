@@ -170,23 +170,30 @@ impl<'a> TurtleDoc<'a> {
                 return Node::Iri(Cow::Owned(format!("{DEFAULT_WELL_KNOWN_PREFIX}{uuid}")));
             }
             statement @ TurtleValue::Statement {
-               subject: _,
-               predicate_objects: _,
+                subject: _,
+                predicate_objects: _,
             } => {
                 return Self::add_statement(statement, ctx, turtle_doc);
             }
             TurtleValue::Collection(nodes) => {
                 let subject = TurtleValue::BNode(BlankNode::Unlabeled);
-                return Self::get_node(TurtleValue::Statement {
-                    subject: Box::new(subject),
-                    predicate_objects: nodes
-                }, ctx, turtle_doc);
+                return Self::get_node(
+                    TurtleValue::Statement {
+                        subject: Box::new(subject),
+                        predicate_objects: nodes,
+                    },
+                    ctx,
+                    turtle_doc,
+                );
             }
             TurtleValue::PredicateObject { predicate, object } => {
                 panic!("why this happens?");
             }
             TurtleValue::ObjectList(values) => {
-                let nodes: Vec<Node<'a>> = values.into_iter().map(|v| Self::get_node(v, ctx, turtle_doc)).collect();
+                let nodes: Vec<Node<'a>> = values
+                    .into_iter()
+                    .map(|v| Self::get_node(v, ctx, turtle_doc))
+                    .collect();
                 return Node::List(nodes);
             }
             _ => panic!("should never happen"), // todo should be an error - result
@@ -199,7 +206,11 @@ impl Display for Node<'_> {
         match &self {
             &Node::Iri(iri) => f.write_str(&format!("<{}>", iri)),
             &Node::Ref(iri) => f.write_str(&format!("{}", iri)),
-            &Node::Literal(Literal::Quoted {datatype,lang,value}) => {
+            &Node::Literal(Literal::Quoted {
+                datatype,
+                lang,
+                value,
+            }) => {
                 let mut s = format!(r#""{value}""#);
                 if let Some(datatype) = datatype {
                     s.push_str(&format!(r#"^^{datatype}"#));
@@ -207,27 +218,44 @@ impl Display for Node<'_> {
                     s.push_str(&format!(r#"@{lang}"#));
                 }
                 f.write_str(&s)
-            },
-            &Node::Literal(Literal::Integer(i)) => f.write_str(&format!(r#""{i}"^^<{}>"#, XSD_INTEGER)),
-            &Node::Literal(Literal::Decimal(d)) => f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_DECIMAL)),
-            &Node::Literal(Literal::Double(d)) => f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_DOUBLE)),
-            &Node::Literal(Literal::Boolean(d)) => f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_BOOLEAN)),
-            _ => panic!("shouldn't happen")
+            }
+            &Node::Literal(Literal::Integer(i)) => {
+                f.write_str(&format!(r#""{i}"^^<{}>"#, XSD_INTEGER))
+            }
+            &Node::Literal(Literal::Decimal(d)) => {
+                f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_DECIMAL))
+            }
+            &Node::Literal(Literal::Double(d)) => {
+                f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_DOUBLE))
+            }
+            &Node::Literal(Literal::Boolean(d)) => {
+                f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_BOOLEAN))
+            }
+            _ => panic!("shouldn't happen"),
         }
     }
 }
 
-impl  Display for Statement<'_> {
+impl Display for Statement<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let Statement {subject, predicate, object} = self;
+        let Statement {
+            subject,
+            predicate,
+            object,
+        } = self;
         f.write_str(&format!(r#"{subject} {predicate} {object}."#))
     }
 }
 
 impl Display for TurtleDoc<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.statements.iter().map(Statement::to_string)
-            .collect::<Vec<String>>()
-            .join("\n"))
+        f.write_str(
+            &self
+                .statements
+                .iter()
+                .map(Statement::to_string)
+                .collect::<Vec<String>>()
+                .join("\n"),
+        )
     }
 }

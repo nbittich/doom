@@ -345,13 +345,13 @@ fn turtle_doc(s: &str) -> IResult<&str, TurtleDoc> {
 
 #[cfg(test)]
 mod test {
-    use crate::turtle::ast_struct::{BlankNode, Iri};
     use crate::turtle::ast_parser::{iri, labeled_bnode, subject, triples};
+    use crate::turtle::ast_struct::{BlankNode, Iri};
 
     use super::{anon_bnode, base, collection, prefix, prefixed_iri, turtle_doc, TurtleValue};
+    use crate::turtle::turtle_doc::TurtleDoc;
     use std::collections::HashMap;
     use std::rc::Rc;
-    use crate::turtle::turtle_doc::TurtleDoc;
 
     use super::predicate_lists;
 
@@ -529,7 +529,7 @@ mod test {
     }
     #[test]
     fn turtle_doc_bnode_test() {
-        let doc =  r#"
+        let doc = r#"
         @prefix foaf: <http://foaf.com/>.
         [ foaf:name "Alice" ] foaf:knows [
     foaf:name "Bob" ;
