@@ -64,8 +64,7 @@ impl<'a> TurtleDoc<'a> {
         file.read_to_string(buf).map_err(|err| TurtleDocError {
             message: format!("cannot read file: {err}"),
         })?;
-        let doc = Self::from_str(buf)?;
-        Ok(doc)
+        Self::from_str(buf)
     }
     fn new(turtle_values: Vec<TurtleValue<'a>>) -> Result<Self, TurtleDocError> {
         let mut context = Context {
