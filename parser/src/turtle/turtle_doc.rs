@@ -220,7 +220,7 @@ impl Display for Node<'_> {
 impl  Display for Statement<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let Statement {subject, predicate, object} = self;
-        f.write_str(&format!(r#"{subject} {predicate} {object}"#))
+        f.write_str(&format!(r#"{subject} {predicate} {object}."#))
     }
 }
 
@@ -228,6 +228,6 @@ impl Display for TurtleDoc<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.statements.iter().map(Statement::to_string)
             .collect::<Vec<String>>()
-            .join(".\n"))
+            .join("\n"))
     }
 }

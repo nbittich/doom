@@ -523,7 +523,7 @@ mod test {
 
     #[test]
     fn turtle_doc_test() {
-        let doc = include_str!("./example/turtle_doc.ttl");
+        let doc = include_str!("example/input.ttl");
         let (remaining, turtle) = turtle_doc(doc).unwrap();
         println!("{turtle}");
     }
