@@ -6,4 +6,6 @@ pub const XSD_DOUBLE: &str = "http://www.w3.org/2001/XMLSchema#double";
 pub const LANG_LITERAL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString";
 pub const NS_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 pub const RDF_NIL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil";
+pub const RDF_FIRST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#first";
+pub const RDF_REST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest";
 pub const DEFAULT_WELL_KNOWN_PREFIX: &str = "http://example.org/.well-known/genid#";

@@ -37,3 +37,19 @@
 <http://example.org/.well-known/genid#6955800d-16db-49f8-a614-b0cbea3d7fb2> <http://foaf.com/mbox> <bob@example.com>.
 <http://example.org/.well-known/genid#e162c9a7-52cf-4240-9359-b1b1f977f642> <http://foaf.com/knows> <http://example.org/.well-known/genid#6955800d-16db-49f8-a614-b0cbea3d7fb2>
 ```
+
+#### Input
+```turtle
+@prefix : <http://example.com/>.
+:a :b ( "apple" "banana" ) .
+```
+#### Output
+```turtle
+<http://example.org/.well-known/genid#018a16a1-9f82-4acd-930e-2be1ea090e83> <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "apple"^^<http://www.w3.org/2001/XMLSchema#string>.
+<http://example.org/.well-known/genid#4ef6beb7-5e21-4d77-9459-2662b6845375> <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "banana"^^<http://www.w3.org/2001/XMLSchema#string>.
+<http://example.org/.well-known/genid#4ef6beb7-5e21-4d77-9459-2662b6845375> <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil>.
+<http://example.org/.well-known/genid#018a16a1-9f82-4acd-930e-2be1ea090e83> <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://example.org/.well-known/genid#4ef6beb7-5e21-4d77-9459-2662b6845375>.
+<http://example.com/a> <http://example.com/b> <http://example.org/.well-known/genid#018a16a1-9f82-4acd-930e-2be1ea090e83>.
+
+
+```

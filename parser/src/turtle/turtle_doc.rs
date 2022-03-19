@@ -1,7 +1,10 @@
-use crate::shared::{DEFAULT_WELL_KNOWN_PREFIX, XSD_BOOLEAN, XSD_DECIMAL, XSD_DOUBLE, XSD_INTEGER};
+use crate::shared::{
+    DEFAULT_WELL_KNOWN_PREFIX, RDF_FIRST, RDF_NIL, RDF_REST, XSD_BOOLEAN, XSD_DECIMAL, XSD_DOUBLE,
+    XSD_INTEGER,
+};
 use crate::turtle::ast_struct::{BlankNode, Iri, TurtleValue};
 use std::borrow::{Borrow, Cow};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter, Write};
 use std::rc::Rc;
 use uuid::adapter::Urn;
@@ -186,12 +189,29 @@ impl<'a> TurtleDoc<'a> {
             } => {
                 return Self::add_statement(statement, ctx, turtle_doc);
             }
-            TurtleValue::Collection(nodes) => {
+            TurtleValue::Collection(mut nodes) => {
                 let subject = TurtleValue::BNode(BlankNode::Unlabeled);
-                return Self::get_node(
+                let first = nodes
+                    .pop_front()
+                    .expect("collection should have at least one element. something when wrong"); // todo this should never happen, but who knows
+                let rest = if nodes.is_empty() {
+                    TurtleValue::Iri(Iri::Enclosed(RDF_NIL))
+                } else {
+                    TurtleValue::Collection(nodes)
+                };
+                return Self::add_statement(
                     TurtleValue::Statement {
                         subject: Box::new(subject),
-                        predicate_objects: nodes,
+                        predicate_objects: vec![
+                            TurtleValue::PredicateObject {
+                                predicate: Box::new(TurtleValue::Iri(Iri::Enclosed(RDF_FIRST))),
+                                object: Box::new(first),
+                            },
+                            TurtleValue::PredicateObject {
+                                predicate: Box::new(TurtleValue::Iri(Iri::Enclosed(RDF_REST))),
+                                object: Box::new(rest),
+                            },
+                        ],
                     },
                     ctx,
                     turtle_doc,

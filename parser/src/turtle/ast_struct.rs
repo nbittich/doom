@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 pub const BASE_TURTLE: &str = "@base";
 pub const BASE_SPARQL: &str = "BASE";
 pub const PREFIX_TURTLE: &str = "@prefix";
@@ -11,7 +13,7 @@ pub enum TurtleValue<'a> {
     Literal(Literal<'a>),
     BNode(BlankNode<'a>),
     ObjectList(Vec<TurtleValue<'a>>),
-    Collection(Vec<TurtleValue<'a>>),
+    Collection(VecDeque<TurtleValue<'a>>),
     PredicateObject {
         predicate: Box<TurtleValue<'a>>,
         object: Box<TurtleValue<'a>>,

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ops::RangeBounds;
 
 pub use crate::grammar::*;
@@ -265,7 +265,7 @@ fn collection(s: &str) -> IResult<&str, TurtleValue> {
     if res.is_empty() {
         Ok((remaining, TurtleValue::Iri(Iri::Enclosed(RDF_NIL))))
     } else {
-        Ok((remaining, TurtleValue::Collection(res)))
+        Ok((remaining, TurtleValue::Collection(VecDeque::from(res))))
     }
 }
 
@@ -540,6 +540,16 @@ mod test {
 
         "#;
         let (remaining, turtle) = turtle_doc(doc).unwrap();
+        println!("{turtle}");
+    }
+
+    #[test]
+    fn turtle_doc_collection_test() {
+        let s = r#"
+        @prefix : <http://example.com/>.
+        :a :b ( "apple" "banana" ) .
+        "#;
+        let (remaining, turtle) = turtle_doc(s).unwrap();
         println!("{turtle}");
     }
 }
