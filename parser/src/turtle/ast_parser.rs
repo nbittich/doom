@@ -7,10 +7,10 @@ use crate::shared::NS_TYPE;
 
 use crate::{
     shared::{LANG_LITERAL, RDF_NIL, XSD_STRING},
-    turtle::model::Literal,
+    turtle::ast_struct::Literal,
 };
 
-use super::model::{
+use super::ast_struct::{
     BlankNode, Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE,
 };
 use super::turtle_doc::TurtleDoc;
@@ -220,7 +220,7 @@ fn string_literal(s: &str) -> IResult<&str, TurtleValue> {
         Ok((
             remaining,
             TurtleValue::Literal(Literal::Quoted {
-                datatype: Some(Box::new(TurtleValue::Iri(Iri::Enclosed(LANG_LITERAL)))),
+                datatype: None,
                 value: string_literal,
                 lang: Some(lang),
             }),
@@ -340,18 +340,18 @@ fn statement(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 fn turtle_doc(s: &str) -> IResult<&str, TurtleDoc> {
-    map(many0(statement), TurtleDoc)(s)
+    map(many0(statement), TurtleDoc::new)(s)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::turtle::model::{BlankNode, Iri};
-    use crate::turtle::parsing::{iri, labeled_bnode, subject, triples};
+    use crate::turtle::ast_struct::{BlankNode, Iri};
+    use crate::turtle::ast_parser::{iri, labeled_bnode, subject, triples};
 
     use super::{anon_bnode, base, collection, prefix, prefixed_iri, turtle_doc, TurtleValue};
     use std::collections::HashMap;
     use std::rc::Rc;
-    use crate::turtle::turtle_doc::Model;
+    use crate::turtle::turtle_doc::TurtleDoc;
 
     use super::predicate_lists;
 
@@ -525,8 +525,7 @@ mod test {
     fn turtle_doc_test() {
         let doc = include_str!("./example/turtle_doc.ttl");
         let (remaining, turtle) = turtle_doc(doc).unwrap();
-        let model = Model::new(turtle.0);
-        dbg!(model);
+        println!("{turtle}");
     }
     #[test]
     fn turtle_doc_bnode_test() {
@@ -541,7 +540,6 @@ mod test {
 
         "#;
         let (remaining, turtle) = turtle_doc(doc).unwrap();
-        let model = Model::new(turtle.0);
-        dbg!(model);
+        println!("{turtle}");
     }
 }

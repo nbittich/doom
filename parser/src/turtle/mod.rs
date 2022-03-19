@@ -1,4 +1,4 @@
-pub mod model;
+pub mod ast_struct;
 /// https://www.w3.org/TR/turtle
-pub mod parsing;
+pub mod ast_parser;
 mod turtle_doc;

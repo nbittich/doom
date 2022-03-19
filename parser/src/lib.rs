@@ -5,6 +5,8 @@
     unused_imports,
     unused_must_use
 )]
+extern crate core;
+
 pub mod ntriple;
 pub mod shared;
 pub mod turtle;
