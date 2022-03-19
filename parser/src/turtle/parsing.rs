@@ -528,4 +528,20 @@ mod test {
         let model = Model::new(turtle.0);
         dbg!(model);
     }
+    #[test]
+    fn turtle_doc_bnode_test() {
+        let doc =  r#"
+        @prefix foaf: <http://foaf.com/>.
+        [ foaf:name "Alice" ] foaf:knows [
+    foaf:name "Bob" ;
+    foaf:lastName "George", "Joshua" ;
+    foaf:knows [
+        foaf:name "Eve" ] ;
+    foaf:mbox <bob@example.com>] .
+
+        "#;
+        let (remaining, turtle) = turtle_doc(doc).unwrap();
+        let model = Model::new(turtle.0);
+        dbg!(model);
+    }
 }
