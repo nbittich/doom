@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::ops::RangeBounds;
 
-pub use crate::grammar::*;
-pub use crate::prelude::*;
+use crate::grammar::*;
+use crate::prelude::*;
 use crate::shared::NS_TYPE;
 
 use crate::{
@@ -339,8 +339,8 @@ fn statement(s: &str) -> IResult<&str, TurtleValue> {
     preceded(comments, alt((directive, triples)))(s)
 }
 
-fn turtle_doc(s: &str) -> IResult<&str, TurtleDoc> {
-    map(many0(statement), TurtleDoc::new)(s)
+pub fn statements(s: &str) -> IResult<&str, Vec<TurtleValue>> {
+    many0(statement)(s)
 }
 
 #[cfg(test)]
@@ -348,7 +348,7 @@ mod test {
     use crate::turtle::ast_parser::{iri, labeled_bnode, subject, triples};
     use crate::turtle::ast_struct::{BlankNode, Iri};
 
-    use super::{anon_bnode, base, collection, prefix, prefixed_iri, turtle_doc, TurtleValue};
+    use super::{anon_bnode, base, collection, prefix, prefixed_iri, statements, TurtleValue};
     use crate::turtle::turtle_doc::TurtleDoc;
     use std::collections::HashMap;
     use std::rc::Rc;
@@ -519,37 +519,5 @@ mod test {
         let s = r#":subject :predicate2 () ."#;
         let res = triples(s);
         dbg!(res);
-    }
-
-    #[test]
-    fn turtle_doc_test() {
-        let doc = include_str!("example/input.ttl");
-        let (remaining, turtle) = turtle_doc(doc).unwrap();
-        println!("{turtle}");
-    }
-    #[test]
-    fn turtle_doc_bnode_test() {
-        let doc = r#"
-        @prefix foaf: <http://foaf.com/>.
-        [ foaf:name "Alice" ] foaf:knows [
-    foaf:name "Bob" ;
-    foaf:lastName "George", "Joshua" ;
-    foaf:knows [
-        foaf:name "Eve" ] ;
-    foaf:mbox <bob@example.com>] .
-
-        "#;
-        let (remaining, turtle) = turtle_doc(doc).unwrap();
-        println!("{turtle}");
-    }
-
-    #[test]
-    fn turtle_doc_collection_test() {
-        let s = r#"
-        @prefix : <http://example.com/>.
-        :a :b ( "apple" "banana" ) .
-        "#;
-        let (remaining, turtle) = turtle_doc(s).unwrap();
-        println!("{turtle}");
     }
 }
