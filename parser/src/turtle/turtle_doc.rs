@@ -8,6 +8,9 @@ use nom::Err::Error;
 use std::borrow::{Borrow, Cow};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter, Write};
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::rc::Rc;
 use uuid::adapter::Urn;
 use uuid::Uuid;
@@ -53,6 +56,16 @@ impl<'a> TurtleDoc<'a> {
             message: format!("parsing error: {err}"),
         })?;
         Self::new(statements)
+    }
+    pub fn from_file(path: &'a Path, buf: &'a mut String) -> Result<Self, TurtleDocError> {
+        let mut file = File::open(path).map_err(|err| TurtleDocError {
+            message: format!("cannot open file: {err}"),
+        })?;
+        file.read_to_string(buf).map_err(|err| TurtleDocError {
+            message: format!("cannot read file: {err}"),
+        })?;
+        let doc = Self::from_str(buf)?;
+        Ok(doc)
     }
     fn new(turtle_values: Vec<TurtleValue<'a>>) -> Result<Self, TurtleDocError> {
         let mut context = Context {
