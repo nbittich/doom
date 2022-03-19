@@ -88,14 +88,25 @@ impl<'a> TurtleDoc<'a> {
             predicate_objects,
         } = stmt
         {
-            let subject = Rc::new(Self::get_node(*subject, ctx, turtle_doc));
+            let subject = {
+                let subject = Self::get_node(*subject, ctx, turtle_doc);
+                if let Node::Ref(s) = subject {
+                    Rc::clone(&s)
+                } else {
+                    Rc::new(subject)
+                }
+            };
             for predicate_object in predicate_objects {
                 if let TurtleValue::PredicateObject { predicate, object } = predicate_object {
                     let predicate = Self::get_node(*predicate, ctx, turtle_doc);
                     let object = Self::get_node(*object, ctx, turtle_doc);
                     match object {
                         Node::List(nodes) => {
-                            let predicate = Rc::new(predicate);
+                            let predicate = if let Node::Ref(p) = predicate {
+                                Rc::clone(&p)
+                            } else {
+                                Rc::new(predicate)
+                            };
                             for node in nodes {
                                 turtle_doc.statements.push(Statement {
                                     subject: Node::Ref(Rc::clone(&subject)),
@@ -114,7 +125,7 @@ impl<'a> TurtleDoc<'a> {
                     panic!("at this point it should be a predicate_object") // todo error handling
                 }
             }
-            Node::Ref(subject.clone())
+            Node::Ref(subject)
         } else {
             panic!("not a statement, weird"); // todo it should be a result
         }
