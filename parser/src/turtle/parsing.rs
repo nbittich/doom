@@ -351,6 +351,7 @@ mod test {
     use super::{anon_bnode, base, collection, prefix, prefixed_iri, turtle_doc, TurtleValue};
     use std::collections::HashMap;
     use std::rc::Rc;
+    use crate::turtle::turtle_doc::Model;
 
     use super::predicate_lists;
 
@@ -523,8 +524,8 @@ mod test {
     #[test]
     fn turtle_doc_test() {
         let doc = include_str!("./example/turtle_doc.ttl");
-        let res = turtle_doc(doc).unwrap();
-
-        dbg!(res.1);
+        let (remaining, turtle) = turtle_doc(doc).unwrap();
+        let model = Model::new(turtle.0);
+        dbg!(model);
     }
 }

@@ -39,11 +39,12 @@ struct Statement<'a> {
     predicate: Node<'a>,
     object: Node<'a>,
 }
-struct Model<'a> {
+#[derive(PartialEq, Debug)]
+pub struct Model<'a> {
     statements: Vec<Statement<'a>>,
 }
 impl<'a> Model<'a> {
-    fn new(turtle_values: Vec<TurtleValue<'a>>) -> Self {
+    pub fn new(turtle_values: Vec<TurtleValue<'a>>) -> Self {
         let mut context = Context {
             base: None,
             prefixes: HashMap::new(),
@@ -83,7 +84,7 @@ impl<'a> Model<'a> {
         stmt: TurtleValue<'a>,
         ctx: &'x Context,
         model: &'x mut Model<'a>,
-    ) -> Rc<Node<'a>> {
+    ) -> Node<'a> {
         if let TurtleValue::Statement {
             subject,
             predicate_objects,
@@ -115,7 +116,7 @@ impl<'a> Model<'a> {
                     panic!("at this point it should be a predicate_object") // todo error handling
                 }
             }
-            subject.clone()
+            Node::Ref(subject.clone())
         } else {
             panic!("not a statement, weird"); // todo it should be a result
         }
@@ -170,15 +171,27 @@ impl<'a> Model<'a> {
                 let uuid = Uuid::new_v4().to_string();
                 return Node::Iri(Cow::Owned(format!("{DEFAULT_WELL_KNOWN_PREFIX}{uuid}")));
             }
-            TurtleValue::Collection(nodes) => {}
-            TurtleValue::Statement {
-                predicate_objects,
-                subject,
-            } => {}
-            TurtleValue::PredicateObject { predicate, object } => {}
-            TurtleValue::ObjectList(nodes) => {}
+            statement @ TurtleValue::Statement {
+               subject: _,
+               predicate_objects: _,
+            } => {
+                return Self::add_statement(statement, ctx, model);
+            }
+            TurtleValue::Collection(nodes) => {
+                let subject = TurtleValue::BNode(BlankNode::Unlabeled);
+                return Self::get_node(TurtleValue::Statement {
+                    subject: Box::new(subject),
+                    predicate_objects: nodes
+                }, ctx, model);
+            }
+            TurtleValue::PredicateObject { predicate, object } => {
+                panic!("why this happens?");
+            }
+            TurtleValue::ObjectList(values) => {
+                let nodes: Vec<Node<'a>> = values.into_iter().map(|v| Self::get_node(v, ctx, model)).collect();
+                return Node::List(nodes);
+            }
             _ => panic!("should never happen"), // todo should be an error - result
         }
-        todo!()
     }
 }
