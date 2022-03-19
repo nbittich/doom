@@ -94,7 +94,7 @@ impl<'a> TurtleDoc<'a> {
             let subject = {
                 let subject = Self::get_node(*subject, ctx, turtle_doc);
                 if let Node::Ref(s) = subject {
-                    Rc::clone(&s)
+                    s
                 } else {
                     Rc::new(subject)
                 }
@@ -106,7 +106,7 @@ impl<'a> TurtleDoc<'a> {
                     match object {
                         Node::List(nodes) => {
                             let predicate = if let Node::Ref(p) = predicate {
-                                Rc::clone(&p)
+                                p
                             } else {
                                 Rc::new(predicate)
                             };
