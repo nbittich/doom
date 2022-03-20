@@ -334,7 +334,14 @@ impl<'a> TurtleDoc<'a> {
         }
     }
 }
+impl<'a> IntoIterator for TurtleDoc<'a> {
+    type Item = Statement<'a>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
 
+    fn into_iter(self) -> Self::IntoIter {
+        self.statements.into_iter()
+    }
+}
 impl Add for TurtleDoc<'_> {
     type Output = Self;
 
@@ -564,6 +571,6 @@ mod test {
          "#;
         let triples = TurtleDoc::from_string(triples).unwrap();
         assert_eq!(9, triples.len());
-        dbg!(triples);
+        dbg!(&triples);
     }
 }
