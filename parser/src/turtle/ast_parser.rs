@@ -1,4 +1,4 @@
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 
 use crate::grammar::*;
 use crate::prelude::*;
@@ -71,11 +71,11 @@ fn object_lists(s: &str) -> IResult<&str, TurtleValue> {
     return if list.len() > 1 {
         Ok((remaining, TurtleValue::ObjectList(list)))
     } else if let Some(single_value) = list.pop() {
-            Ok((remaining, single_value))
-        } else {
-            let err: Error<&str> = make_error(s, ErrorKind::LengthValue);
-            Err(nom::Err::Error(err))
-        }
+        Ok((remaining, single_value))
+    } else {
+        let err: Error<&str> = make_error(s, ErrorKind::LengthValue);
+        Err(nom::Err::Error(err))
+    };
 }
 
 fn predicate_lists<'a, F>(
@@ -164,7 +164,7 @@ fn primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
     } else {
         let err: Error<&str> = make_error(no_white_space, ErrorKind::IsNot);
         Err(nom::Err::Error(err))
-    }
+    };
 }
 
 // TODO handle primitive literal datatype when sharing prefix
@@ -475,7 +475,7 @@ mod test {
         let s = r#"
             <http://example.org/#spiderman> a person:Person,skos:Concept.
         "#;
-        let (_, res)  = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(res);
     }
 
@@ -490,27 +490,27 @@ mod test {
     foaf:mbox <bob@example.com>] .
 				
         "#;
-       let (_, res)  = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(res);
 
         let s = r#"[] foaf:knows [foaf:name "Bob"] ."#;
-        let (_, res)  = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(res);
     }
 
     #[test]
     fn collection_test() {
         let s = r#":a :b ( "apple" "banana" ) ."#;
-        let (_, res)  = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(res);
         let s = r#"(1 2.0 3E1) :p "w" ."#;
-        let (_, res)  = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(res);
         let s = r#"(1 [:p :q] ( 2 ) ) :p2 :q2 ."#;
-        let (_, res)  = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(res);
         let s = r#":subject :predicate2 () ."#;
-        let (_, res)  = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
 
         dbg!(res);
     }

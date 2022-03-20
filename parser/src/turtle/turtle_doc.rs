@@ -4,9 +4,9 @@ use crate::shared::{
 };
 use crate::turtle::ast_parser::statements;
 use crate::turtle::ast_struct::{BlankNode, Iri, TurtleValue};
-use std::borrow::{Cow};
-use std::collections::{HashMap, };
-use std::fmt::{Display, Formatter, };
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Read;
 use std::ops::Add;
@@ -51,7 +51,7 @@ pub struct TurtleDoc<'a> {
 }
 
 impl<'a> TurtleDoc<'a> {
-    pub fn from_str(s: &'a str) -> Result<Self, TurtleDocError> {
+    pub fn from_string(s: &'a str) -> Result<Self, TurtleDocError> {
         let (_, statements) = statements(s).map_err(|err| TurtleDocError {
             message: format!("parsing error: {err}"),
         })?;
@@ -64,7 +64,7 @@ impl<'a> TurtleDoc<'a> {
         file.read_to_string(buf).map_err(|err| TurtleDocError {
             message: format!("cannot read file: {err}"),
         })?;
-        Self::from_str(buf)
+        Self::from_string(buf)
     }
 
     pub fn list_statements(
@@ -105,10 +105,10 @@ impl<'a> TurtleDoc<'a> {
         for turtle_value in turtle_values {
             match turtle_value {
                 TurtleValue::Base(base) => {
-                    context.base = Some(TurtleDoc::extract_iri(base)?);
+                    context.base = Some(TurtleDoc::extract_iri(*base)?);
                 }
                 TurtleValue::Prefix((prefix, iri)) => {
-                    let iri = TurtleDoc::extract_iri(iri)?;
+                    let iri = TurtleDoc::extract_iri(*iri)?;
                     context.prefixes.insert(prefix, iri);
                 }
                 statement @ TurtleValue::Statement {
@@ -130,8 +130,8 @@ impl<'a> TurtleDoc<'a> {
         })
     }
 
-    fn extract_iri(value: Box<TurtleValue>) -> Result<&str, TurtleDocError> {
-        if let TurtleValue::Iri(Iri::Enclosed(iri)) = *value {
+    fn extract_iri(value: TurtleValue) -> Result<&str, TurtleDocError> {
+        if let TurtleValue::Iri(Iri::Enclosed(iri)) = value {
             Ok(iri)
         } else {
             Err(TurtleDocError {
@@ -254,9 +254,7 @@ impl<'a> TurtleDoc<'a> {
             statement @ TurtleValue::Statement {
                 subject: _,
                 predicate_objects: _,
-            } => {
-                return Self::add_statement(statement, ctx, statements);
-            }
+            } => Self::add_statement(statement, ctx, statements),
             TurtleValue::Collection(mut nodes) => {
                 let subject = TurtleValue::BNode(BlankNode::Unlabeled);
                 let first = nodes.pop_front().ok_or(TurtleDocError {
@@ -287,7 +285,10 @@ impl<'a> TurtleDoc<'a> {
                     statements,
                 );
             }
-            TurtleValue::PredicateObject { predicate: _, object: _ } => Err(TurtleDocError {
+            TurtleValue::PredicateObject {
+                predicate: _,
+                object: _,
+            } => Err(TurtleDocError {
                 message: "PredicateObject: should never happen".into(),
             }),
             TurtleValue::ObjectList(values) => {
@@ -327,10 +328,10 @@ impl Add for TurtleDoc<'_> {
 }
 impl Display for Node<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self {
-            &Node::Iri(iri) => f.write_str(&format!("<{}>", iri)),
-            &Node::Ref(iri) => f.write_str(&format!("{}", iri)),
-            &Node::Literal(Literal::Quoted {
+        match self {
+            Node::Iri(iri) => f.write_str(&format!("<{}>", iri)),
+            Node::Ref(iri) => f.write_str(&format!("{}", iri)),
+            Node::Literal(Literal::Quoted {
                 datatype,
                 lang,
                 value,
@@ -343,16 +344,16 @@ impl Display for Node<'_> {
                 }
                 f.write_str(&s)
             }
-            &Node::Literal(Literal::Integer(i)) => {
+            Node::Literal(Literal::Integer(i)) => {
                 f.write_str(&format!(r#""{i}"^^<{}>"#, XSD_INTEGER))
             }
-            &Node::Literal(Literal::Decimal(d)) => {
+            Node::Literal(Literal::Decimal(d)) => {
                 f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_DECIMAL))
             }
-            &Node::Literal(Literal::Double(d)) => {
+            Node::Literal(Literal::Double(d)) => {
                 f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_DOUBLE))
             }
-            &Node::Literal(Literal::Boolean(d)) => {
+            Node::Literal(Literal::Boolean(d)) => {
                 f.write_str(&format!(r#""{d}"^^<{}>"#, XSD_BOOLEAN))
             }
             _ => Err(std::fmt::Error),
