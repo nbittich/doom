@@ -9,9 +9,11 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Read;
+use std::num::{ParseFloatError, ParseIntError};
 use std::ops::Add;
 use std::path::Path;
 use std::rc::Rc;
+use std::str::ParseBoolError;
 use uuid::Uuid;
 
 struct Context<'a> {
@@ -185,16 +187,46 @@ impl<'a> TurtleDoc<'a> {
                         lang,
                         value,
                     } => {
-                        let datatype: Option<Box<Node<'a>>> = if let Some(datatype) = datatype {
-                            Some(Box::new(Self::get_node(*datatype, ctx, statements)?))
+                        let datatype: Option<Node<'a>> = if let Some(datatype) = datatype {
+                            Some(Self::get_node(*datatype, ctx, statements)?)
                         } else {
                             None
                         };
-                        Node::Literal(Literal::Quoted {
-                            datatype,
-                            lang,
-                            value,
-                        })
+                        match datatype {
+                            Some(Node::Iri(iri)) if iri == XSD_BOOLEAN => {
+                                Node::Literal(Literal::Boolean(value.parse().map_err(
+                                    |e: ParseBoolError| TurtleDocError {
+                                        message: e.to_string(),
+                                    },
+                                )?))
+                            }
+                            Some(Node::Iri(iri)) if iri == XSD_INTEGER => {
+                                Node::Literal(Literal::Integer(value.parse().map_err(
+                                    |e: ParseIntError| TurtleDocError {
+                                        message: e.to_string(),
+                                    },
+                                )?))
+                            }
+                            Some(Node::Iri(iri)) if iri == XSD_DECIMAL => {
+                                Node::Literal(Literal::Decimal(value.parse().map_err(
+                                    |e: ParseFloatError| TurtleDocError {
+                                        message: e.to_string(),
+                                    },
+                                )?))
+                            }
+                            Some(Node::Iri(iri)) if iri == XSD_DOUBLE => {
+                                Node::Literal(Literal::Double(value.parse().map_err(
+                                    |e: ParseFloatError| TurtleDocError {
+                                        message: e.to_string(),
+                                    },
+                                )?))
+                            }
+                            dt => Node::Literal(Literal::Quoted {
+                                datatype: dt.map(Box::new),
+                                lang,
+                                value,
+                            }),
+                        }
                     }
                 };
                 Ok(literal)
@@ -526,8 +558,12 @@ mod test {
 
          <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
          <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#decimal> .     # xsd:double
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1123"^^<http://www.w3.org/2001/XMLSchema#integer> .     # xsd:double
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/nice> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> .
          "#;
         let triples = TurtleDoc::from_string(triples).unwrap();
-        assert_eq!(6, triples.len());
+        assert_eq!(9, triples.len());
+        dbg!(triples);
     }
 }

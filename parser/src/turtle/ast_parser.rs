@@ -85,7 +85,7 @@ where
     F: FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>,
 {
     move |s| {
-        let (remaining, subject) = subject_extractor(s)?; // TODO handle other cases
+        let (remaining, subject) = subject_extractor(s)?;
 
         let (remaining, list) = preceded(
             multispace0,
@@ -167,7 +167,6 @@ fn primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
     };
 }
 
-// TODO handle primitive literal datatype when sharing prefix
 fn string_literal(s: &str) -> IResult<&str, TurtleValue> {
     let single_quote_literal = delimited(
         tag(STRING_LITERAL_SINGLE_QUOTE),
