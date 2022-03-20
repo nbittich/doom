@@ -1,6 +1,5 @@
 extern crate core;
 
-pub mod ntriple;
 pub mod shared;
 pub mod turtle;
 

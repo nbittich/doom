@@ -483,4 +483,51 @@ mod test {
         assert_eq!(5, statements.len());
         println!("{statements:?}");
     }
+
+    #[test]
+    fn parse_test() {
+        let triple = r#"
+        # this is a comment
+         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>. # this is a comment at EOF
+             <http://bittich.be/some/url/123><http://example.org/firstName><http://n.com/nordine>.
+             <http://example.org/show/218> <http://www.w3.org/2000/01/rdf-schema#label> "That Seventies Show".
+             <http://example.org/show/218> <http://example.org/show/localName> "That Seventies Show"@en .
+         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+
+
+            #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+            _:alice <http://xmlns.com/foaf/0.1/knows> _:bob .
+            _:bob <http://xmlns.com/foaf/0.1/knows> _:alice .
+         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         <http://example.org/show/218> <http://example.org/show/localName> "Cette Série des Années Septante"@fr-be .
+
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
+         "#;
+
+        let triples = TurtleDoc::from_string(triple).unwrap();
+        println!("{:?}", triples);
+        assert_eq!(triples.len(), 12);
+    }
+    #[test]
+    fn test_multi_comments() {
+        let triples = r#"
+            #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+            #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+            #  the entire line is commented <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+            _:alice <http://xmlns.com/foaf/0.1/knows> _:bob .
+            _:bob <http://xmlns.com/foaf/0.1/knows> _:alice .
+         <http://bittich.be/some/url/123>    <http://example.org/firstName><http://n.com/nordine>  .
+         <http://example.org/show/218> <http://example.org/show/localName> "Cette Série des Années Septante"@fr-be .
+
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
+         <http://en.wikipedia.org/wiki/Helium> <http://example.org/elements/specificGravity> "1.663E-4"^^<http://www.w3.org/2001/XMLSchema#double> .     # xsd:double
+         "#;
+        let triples = TurtleDoc::from_string(triples).unwrap();
+        assert_eq!(6, triples.len());
+    }
 }
