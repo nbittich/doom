@@ -1,10 +1,3 @@
-#![allow(
-    dead_code,
-    unused_variables,
-    unused_mut,
-    unused_imports,
-    unused_must_use
-)]
 extern crate core;
 
 pub mod ntriple;

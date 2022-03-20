@@ -1,19 +1,17 @@
-use std::collections::{HashMap, VecDeque};
-use std::ops::RangeBounds;
+use std::collections::{VecDeque};
 
 use crate::grammar::*;
 use crate::prelude::*;
 use crate::shared::NS_TYPE;
 
 use crate::{
-    shared::{LANG_LITERAL, RDF_NIL, XSD_STRING},
+    shared::{RDF_NIL, XSD_STRING},
     turtle::ast_struct::Literal,
 };
 
 use super::ast_struct::{
     BlankNode, Iri, TurtleValue, BASE_SPARQL, BASE_TURTLE, PREFIX_SPARQL, PREFIX_TURTLE,
 };
-use super::turtle_doc::TurtleDoc;
 
 fn comments(s: &str) -> IResult<&str, Vec<&str>> {
     many0(delimited(
@@ -70,16 +68,14 @@ fn prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
 
 fn object_lists(s: &str) -> IResult<&str, TurtleValue> {
     let (remaining, mut list) = separated_list1(char(','), object)(s)?;
-    if list.len() > 1 {
-        return Ok((remaining, TurtleValue::ObjectList(list)));
-    } else {
-        if let Some(single_value) = list.pop() {
-            return Ok((remaining, single_value));
+    return if list.len() > 1 {
+        Ok((remaining, TurtleValue::ObjectList(list)))
+    } else if let Some(single_value) = list.pop() {
+            Ok((remaining, single_value))
         } else {
             let err: Error<&str> = make_error(s, ErrorKind::LengthValue);
-            return Err(nom::Err::Error(err));
+            Err(nom::Err::Error(err))
         }
-    }
 }
 
 fn predicate_lists<'a, F>(
@@ -121,7 +117,7 @@ where
 fn parse_boolean(s: &str) -> IResult<&str, bool> {
     let (remaining, val) = terminated(
         map(alt((tag("true"), tag("false"))), |b: &str| {
-            b.parse::<bool>().map_err(|err| {
+            b.parse::<bool>().map_err(|_err| {
                 let err: Error<&str> = make_error(b, ErrorKind::IsNot);
                 nom::Err::Error(err)
             })
@@ -151,44 +147,44 @@ fn parse_number(s: &str) -> IResult<&str, Literal> {
         Ok((remaining, Literal::Double(n)))
     } else {
         let err: Error<&str> = make_error(s, ErrorKind::IsNot);
-        return Err(nom::Err::Error(err));
+        Err(nom::Err::Error(err))
     }
 }
 
 fn primitive_literal(s: &str) -> IResult<&str, TurtleValue> {
     let (no_white_space, _) = multispace0(s)?;
 
-    if let Ok((remaining, boolean_value)) = parse_boolean(no_white_space) {
-        return Ok((
+    return if let Ok((remaining, boolean_value)) = parse_boolean(no_white_space) {
+        Ok((
             remaining,
             TurtleValue::Literal(Literal::Boolean(boolean_value)),
-        ));
+        ))
     } else if let Ok((remaining, number_value)) = parse_number(no_white_space) {
-        return Ok((remaining, TurtleValue::Literal(number_value)));
+        Ok((remaining, TurtleValue::Literal(number_value)))
     } else {
         let err: Error<&str> = make_error(no_white_space, ErrorKind::IsNot);
-        return Err(nom::Err::Error(err));
+        Err(nom::Err::Error(err))
     }
 }
 
 // TODO handle primitive literal datatype when sharing prefix
 fn string_literal(s: &str) -> IResult<&str, TurtleValue> {
-    let mut single_quote_literal = delimited(
+    let single_quote_literal = delimited(
         tag(STRING_LITERAL_SINGLE_QUOTE),
         take_until1(STRING_LITERAL_SINGLE_QUOTE),
         tag(STRING_LITERAL_SINGLE_QUOTE),
     );
-    let mut double_quote_literal = delimited(
+    let double_quote_literal = delimited(
         tag(STRING_LITERAL_QUOTE),
         take_until1(STRING_LITERAL_QUOTE),
         tag(STRING_LITERAL_QUOTE),
     );
-    let mut long_single_quote_literal = delimited(
+    let long_single_quote_literal = delimited(
         tag(STRING_LITERAL_LONG_SINGLE_QUOTE),
         take_until1(STRING_LITERAL_LONG_SINGLE_QUOTE),
         tag(STRING_LITERAL_LONG_SINGLE_QUOTE),
     );
-    let mut long_quote_literal = delimited(
+    let long_quote_literal = delimited(
         tag(STRING_LITERAL_LONG_QUOTE),
         take_until1(STRING_LITERAL_LONG_QUOTE),
         tag(STRING_LITERAL_LONG_QUOTE),
@@ -242,11 +238,11 @@ fn literal(s: &str) -> IResult<&str, TurtleValue> {
 }
 // -----------------------------------------------------------------------------------------------------------------------------------------
 fn prefixed_iri(s: &str) -> IResult<&str, TurtleValue> {
-    let mut prefixed = map(
+    let prefixed = map(
         separated_pair(
             take_while(|s: char| s.is_alphanumeric()),
             tag(":"),
-            take_while(|s: char| s.is_alphanumeric() || PN_LOCAL_ESC.contains(&s)),
+            take_while(|s: char| s.is_alphanumeric() || PN_LOCAL_ESC.contains(&s)), // TODO this won't work in some cases
         ),
         |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
     );
@@ -271,7 +267,7 @@ fn collection(s: &str) -> IResult<&str, TurtleValue> {
 
 fn anon_bnode(s: &str) -> IResult<&str, TurtleValue> {
     let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
-    let mut extract = preceded(
+    let extract = preceded(
         char('['),
         terminated(
             alt((predicate_lists(unlabeled_subject), unlabeled_subject)),
@@ -300,7 +296,7 @@ fn blank_node(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 fn enclosed_iri(s: &str) -> IResult<&str, TurtleValue> {
-    let mut enclosed = map(
+    let enclosed = map(
         delimited(char('<'), take_while(|s: char| s != '>'), char('>')),
         Iri::Enclosed,
     );
@@ -317,7 +313,7 @@ fn subject(s: &str) -> IResult<&str, TurtleValue> {
 }
 fn predicate(s: &str) -> IResult<&str, TurtleValue> {
     alt((
-        map(terminated(char('a'), multispace1), |s| {
+        map(terminated(char('a'), multispace1), |_| {
             TurtleValue::Iri(Iri::Enclosed(NS_TYPE))
         }),
         iri,
@@ -345,15 +341,10 @@ pub fn statements(s: &str) -> IResult<&str, Vec<TurtleValue>> {
 
 #[cfg(test)]
 mod test {
-    use crate::turtle::ast_parser::{iri, labeled_bnode, subject, triples};
+    use crate::turtle::ast_parser::{labeled_bnode, triples};
     use crate::turtle::ast_struct::{BlankNode, Iri};
 
-    use super::{anon_bnode, base, collection, prefix, prefixed_iri, statements, TurtleValue};
-    use crate::turtle::turtle_doc::TurtleDoc;
-    use std::collections::HashMap;
-    use std::rc::Rc;
-
-    use super::predicate_lists;
+    use super::{base, prefix, prefixed_iri, TurtleValue};
 
     #[test]
     fn base_test() {
@@ -366,7 +357,7 @@ mod test {
              @base    <http://one.example/turtle> .
         "#;
 
-        let (remaining, base_turtle) = base(base_turtle).unwrap();
+        let (_, base_turtle) = base(base_turtle).unwrap();
         assert_eq!(
             TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
                 "http://one.example/turtle"
@@ -374,7 +365,7 @@ mod test {
             base_turtle
         );
 
-        let (remaining, base_sparql) = base(base_sparql).unwrap();
+        let (_, base_sparql) = base(base_sparql).unwrap();
         assert_eq!(
             TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
                 "http://one.example/sparql"
@@ -398,7 +389,7 @@ mod test {
              @prefix    :    <http://two.example/empty> .
         "#;
 
-        let (remaining, prefix_turtle) = prefix(prefix_turtle).unwrap();
+        let (_, prefix_turtle) = prefix(prefix_turtle).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "p",
@@ -406,7 +397,7 @@ mod test {
             )),
             prefix_turtle
         );
-        let (remaining, prefix_empty_turtle) = prefix(prefix_empty_turtle).unwrap();
+        let (_, prefix_empty_turtle) = prefix(prefix_empty_turtle).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "",
@@ -415,7 +406,7 @@ mod test {
             prefix_empty_turtle
         );
 
-        let (remaining, prefix_sparql) = prefix(prefix_sparql).unwrap();
+        let (_, prefix_sparql) = prefix(prefix_sparql).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "p",
@@ -461,28 +452,30 @@ mod test {
             <http://example.org/elements/isNotOk> false ;
             <http://example.org/elements/specificGravity> 1.663E-4 .
         "#;
-        let (remaining, res) = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(&res);
         let s = r#"
             _:helium <http://example.org/elements/atomicNumber>  "2".
         "#;
-        let (remaining, res) = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(&res);
 
         let s = r#"
             <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
             <http://en.wikipedia.org/wiki/Helium>  <http://example.org/elements/atomicNumber>  "2".
         "#;
-        let (remaining, res) = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
+        dbg!(res);
+
         let s = r#"
             <http://example.org/#spiderman> <http://xmlns.com/foaf/0.1/name> "Spiderman", "Человек-паук"@ru .
         "#;
-        let (remaining, res) = triples(s).unwrap();
+        let (_, res) = triples(s).unwrap();
         dbg!(res);
         let s = r#"
             <http://example.org/#spiderman> a person:Person,skos:Concept.
         "#;
-        let res = triples(s);
+        let (_, res)  = triples(s).unwrap();
         dbg!(res);
     }
 
@@ -497,27 +490,28 @@ mod test {
     foaf:mbox <bob@example.com>] .
 				
         "#;
-        let res = triples(s);
+       let (_, res)  = triples(s).unwrap();
         dbg!(res);
 
         let s = r#"[] foaf:knows [foaf:name "Bob"] ."#;
-        let res = triples(s);
+        let (_, res)  = triples(s).unwrap();
         dbg!(res);
     }
 
     #[test]
     fn collection_test() {
         let s = r#":a :b ( "apple" "banana" ) ."#;
-        let res = triples(s);
+        let (_, res)  = triples(s).unwrap();
         dbg!(res);
         let s = r#"(1 2.0 3E1) :p "w" ."#;
-        let res = triples(s);
+        let (_, res)  = triples(s).unwrap();
         dbg!(res);
         let s = r#"(1 [:p :q] ( 2 ) ) :p2 :q2 ."#;
-        let res = triples(s);
+        let (_, res)  = triples(s).unwrap();
         dbg!(res);
         let s = r#":subject :predicate2 () ."#;
-        let res = triples(s);
+        let (_, res)  = triples(s).unwrap();
+
         dbg!(res);
     }
 }
