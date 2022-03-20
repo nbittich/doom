@@ -44,7 +44,7 @@ pub struct Statement<'a> {
     pub predicate: Node<'a>,
     pub object: Node<'a>,
 }
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Default)]
 pub struct TurtleDoc<'a> {
     prefixes: HashMap<&'a str, &'a str>,
     statements: Vec<Statement<'a>>,
@@ -67,6 +67,19 @@ impl<'a> TurtleDoc<'a> {
         Self::from_string(buf)
     }
 
+    pub fn add_statement(&mut self, subject: Node<'a>, predicate: Node<'a>, object: Node<'a>) {
+        self.statements.push(Statement {
+            subject,
+            predicate,
+            object,
+        });
+    }
+    pub fn len(&self) -> usize {
+        self.statements.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.statements.is_empty()
+    }
     pub fn list_statements(
         &self,
         subject: Option<&Node>,
@@ -115,7 +128,7 @@ impl<'a> TurtleDoc<'a> {
                     subject: _,
                     predicate_objects: _,
                 } => {
-                    Self::add_statement(statement, &context, &mut statements)?;
+                    Self::get_node(statement, &context, &mut statements)?;
                 }
                 _ => {
                     return Err(TurtleDocError {
@@ -140,62 +153,6 @@ impl<'a> TurtleDoc<'a> {
         }
     }
 
-    fn add_statement<'x>(
-        stmt: TurtleValue<'a>,
-        ctx: &'x Context,
-        statements: &'x mut Vec<Statement<'a>>,
-    ) -> Result<Node<'a>, TurtleDocError> {
-        if let TurtleValue::Statement {
-            subject,
-            predicate_objects,
-        } = stmt
-        {
-            let subject = {
-                let subject = Self::get_node(*subject, ctx, statements)?;
-                if let Node::Ref(s) = subject {
-                    s
-                } else {
-                    Rc::new(subject)
-                }
-            };
-            for predicate_object in predicate_objects {
-                if let TurtleValue::PredicateObject { predicate, object } = predicate_object {
-                    let predicate = Self::get_node(*predicate, ctx, statements)?;
-                    let object = Self::get_node(*object, ctx, statements)?;
-                    match object {
-                        Node::List(nodes) => {
-                            let predicate = if let Node::Ref(p) = predicate {
-                                p
-                            } else {
-                                Rc::new(predicate)
-                            };
-                            for node in nodes {
-                                statements.push(Statement {
-                                    subject: Node::Ref(Rc::clone(&subject)),
-                                    predicate: Node::Ref(Rc::clone(&predicate)),
-                                    object: node,
-                                });
-                            }
-                        }
-                        node => statements.push(Statement {
-                            subject: Node::Ref(Rc::clone(&subject)),
-                            predicate,
-                            object: node,
-                        }),
-                    }
-                } else {
-                    return Err(TurtleDocError {
-                        message: "at this point it should be a predicate_object".into(),
-                    });
-                }
-            }
-            Ok(Node::Ref(subject))
-        } else {
-            Err(TurtleDocError {
-                message: "not a statement, weird".into(),
-            })
-        }
-    }
     fn get_node<'x>(
         value: TurtleValue<'a>,
         ctx: &'x Context,
@@ -251,10 +208,51 @@ impl<'a> TurtleDoc<'a> {
                     "{DEFAULT_WELL_KNOWN_PREFIX}{uuid}"
                 ))))
             }
-            statement @ TurtleValue::Statement {
-                subject: _,
-                predicate_objects: _,
-            } => Self::add_statement(statement, ctx, statements),
+            TurtleValue::Statement {
+                subject,
+                predicate_objects,
+            } => {
+                let subject = {
+                    let subject = Self::get_node(*subject, ctx, statements)?;
+                    if let Node::Ref(s) = subject {
+                        s
+                    } else {
+                        Rc::new(subject)
+                    }
+                };
+                for predicate_object in predicate_objects {
+                    if let TurtleValue::PredicateObject { predicate, object } = predicate_object {
+                        let predicate = Self::get_node(*predicate, ctx, statements)?;
+                        let object = Self::get_node(*object, ctx, statements)?;
+                        match object {
+                            Node::List(nodes) => {
+                                let predicate = if let Node::Ref(p) = predicate {
+                                    p
+                                } else {
+                                    Rc::new(predicate)
+                                };
+                                for node in nodes {
+                                    statements.push(Statement {
+                                        subject: Node::Ref(Rc::clone(&subject)),
+                                        predicate: Node::Ref(Rc::clone(&predicate)),
+                                        object: node,
+                                    });
+                                }
+                            }
+                            node => statements.push(Statement {
+                                subject: Node::Ref(Rc::clone(&subject)),
+                                predicate,
+                                object: node,
+                            }),
+                        }
+                    } else {
+                        return Err(TurtleDocError {
+                            message: "at this point it should be a predicate_object".into(),
+                        });
+                    }
+                }
+                Ok(Node::Ref(subject))
+            }
             TurtleValue::Collection(mut nodes) => {
                 let subject = TurtleValue::BNode(BlankNode::Unlabeled);
                 let first = nodes.pop_front().ok_or(TurtleDocError {
@@ -267,7 +265,7 @@ impl<'a> TurtleDoc<'a> {
                 } else {
                     TurtleValue::Collection(nodes)
                 };
-                return Self::add_statement(
+                return Self::get_node(
                     TurtleValue::Statement {
                         subject: Box::new(subject),
                         predicate_objects: vec![
@@ -397,14 +395,13 @@ impl Display for TurtleDocError {
 
 #[cfg(test)]
 mod test {
-    use crate::turtle::ast_parser::statements;
-    use crate::turtle::turtle_doc::{Node, TurtleDoc};
+    use crate::turtle::turtle_doc::{Literal, Node, TurtleDoc};
     use std::borrow::Cow;
 
     #[test]
     fn turtle_doc_test() {
         let doc = include_str!("example/input.ttl");
-        let turtle = TurtleDoc::from_str(doc).unwrap();
+        let turtle = TurtleDoc::from_string(doc).unwrap();
         println!("{turtle}");
     }
     #[test]
@@ -419,7 +416,7 @@ mod test {
     foaf:mbox <bob@example.com>] .
 
         "#;
-        let turtle = TurtleDoc::from_str(doc).unwrap();
+        let turtle = TurtleDoc::from_string(doc).unwrap();
         println!("{turtle}");
     }
 
@@ -429,7 +426,7 @@ mod test {
         @prefix : <http://example.com/>.
         :a :b ( "apple" "banana" ) .
         "#;
-        let turtle = TurtleDoc::from_str(s).unwrap();
+        let turtle = TurtleDoc::from_string(s).unwrap();
         println!("{turtle}");
     }
     #[test]
@@ -448,10 +445,18 @@ mod test {
     foaf:mbox <bob@example.com>] .
 
         "#;
-        let turtle1 = TurtleDoc::from_str(doc1).unwrap();
-        let turtle2 = TurtleDoc::from_str(doc2).unwrap();
+        let turtle1 = TurtleDoc::from_string(doc1).unwrap();
+        let turtle2 = TurtleDoc::from_string(doc2).unwrap();
         let turtle3 = turtle1 + turtle2;
         println!("{turtle3}");
+        let mut turtle = TurtleDoc::default();
+        turtle.add_statement(
+            Node::Iri(Cow::Borrowed("http://xxx.com/123")),
+            Node::Iri(Cow::Borrowed("http://bar.com/345")),
+            Node::Literal(Literal::Decimal(123f32)),
+        );
+        let turtle4 = turtle + turtle3;
+        println!("{turtle4}");
     }
     #[test]
     fn turtle_doc_list_statements_test() {
@@ -465,7 +470,7 @@ mod test {
     foaf:mbox <bob@example.com>] .
 
         "#;
-        let turtle = TurtleDoc::from_str(doc).unwrap();
+        let turtle = TurtleDoc::from_string(doc).unwrap();
         let statements = turtle.list_statements(
             None,
             None,
