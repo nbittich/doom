@@ -2,6 +2,7 @@ extern crate core;
 
 pub mod shared;
 pub mod turtle;
+mod sparql;
 
 pub mod prelude {
     pub use nom::{

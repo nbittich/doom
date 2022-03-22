@@ -23,43 +23,37 @@ fn comments(s: &str) -> IResult<&str, Vec<&str>> {
 
 // BASE & PREFIX
 // -----------------------------------------------------------------------------------------------------------------------------------------
-fn base(s: &str) -> IResult<&str, TurtleValue<'_>> {
-    let (remaining, base) = preceded(
-        multispace0,
-        tag_no_case(BASE_SPARQL).or(tag_no_case(BASE_TURTLE)),
-    )(s)?;
-    match base {
-        BASE_SPARQL => map(enclosed_iri, |iri| TurtleValue::Base(Box::new(iri)))(remaining),
-        BASE_TURTLE => map(
-            terminated(enclosed_iri, preceded(multispace0, char('.'))),
-            |iri| TurtleValue::Base(Box::new(iri)),
-        )(remaining),
-        _ => {
-            let err: Error<&str> = make_error(base, ErrorKind::IsNot);
-            Err(nom::Err::Error(err))
-        }
-    }
+fn base_sparql(s: &str) -> IResult<&str, TurtleValue<'_>> {
+    base(BASE_SPARQL, enclosed_iri)(s)
 }
-fn prefix(s: &str) -> IResult<&str, TurtleValue<'_>> {
-    let (remaining, prefix) = preceded(
-        multispace0,
-        tag_no_case(PREFIX_SPARQL).or(tag_no_case(PREFIX_TURTLE)),
-    )(s)?;
-    let mut get_prefix = preceded(
-        multispace0,
+fn base_turtle(s: &str) -> IResult<&str, TurtleValue<'_>> {
+   base(BASE_TURTLE, terminated(enclosed_iri, preceded(multispace0, char('.'))))(s)
+}
+fn base<'a, F>(base_tag: &'static str, extract_base: F)->  impl FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
+    where F: FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
+{
+    map(
+        preceded(preceded(
+            multispace0,
+            tag_no_case(base_tag)),extract_base),
+        |iri| TurtleValue::Base(Box::new(iri))
+    )
+}
+fn prefix<'a>(prefix_tag: &'static str)->  impl FnMut(&'a str) -> IResult<&'a str, TurtleValue<'a>>
+{
+    preceded(
+        preceded(multispace0, tag_no_case(prefix_tag)),
         map(
-            separated_pair(take_until(":"), tag(":"), enclosed_iri),
+            separated_pair(preceded(multispace0,take_until(":")), tag(":"), enclosed_iri),
             |(prefix, iri)| TurtleValue::Prefix((prefix, Box::new(iri))),
         ),
-    );
-    match prefix {
-        PREFIX_SPARQL => get_prefix(remaining),
-        PREFIX_TURTLE => terminated(get_prefix, preceded(multispace0, char('.')))(remaining),
-        _ => {
-            let err: Error<&str> = make_error(prefix, ErrorKind::IsNot);
-            Err(nom::Err::Error(err))
-        }
-    }
+    )
+}
+fn prefix_turtle(s: &str) -> IResult<&str, TurtleValue<'_>> {
+    terminated(prefix(PREFIX_TURTLE),preceded(multispace0, char('.')))(s)
+}
+fn prefix_sparql(s: &str) -> IResult<&str, TurtleValue<'_>> {
+    prefix(PREFIX_SPARQL)(s)
 }
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
@@ -327,7 +321,7 @@ fn triples(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 fn directive(s: &str) -> IResult<&str, TurtleValue> {
-    alt((base, prefix))(s)
+    alt((base_sparql, base_turtle,prefix_turtle, prefix_sparql))(s)
 }
 
 fn statement(s: &str) -> IResult<&str, TurtleValue> {
@@ -343,20 +337,20 @@ mod test {
     use crate::turtle::ast_parser::{labeled_bnode, triples};
     use crate::turtle::ast_struct::{BlankNode, Iri};
 
-    use super::{base, prefix, prefixed_iri, TurtleValue};
+    use super::{base_turtle, base_sparql, prefix_sparql, prefix_turtle, prefixed_iri, TurtleValue};
 
     #[test]
     fn base_test() {
-        let base_sparql = r#"
+        let sparql = r#"
               BASE   <http://one.example/sparql>
 
         "#;
-        let base_turtle = r#"
+        let turtle = r#"
 
              @base    <http://one.example/turtle> .
         "#;
 
-        let (_, base_turtle) = base(base_turtle).unwrap();
+        let (_, base_turtle) = base_turtle(turtle).unwrap();
         assert_eq!(
             TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
                 "http://one.example/turtle"
@@ -364,7 +358,7 @@ mod test {
             base_turtle
         );
 
-        let (_, base_sparql) = base(base_sparql).unwrap();
+        let (_, base_sparql) = base_sparql(sparql).unwrap();
         assert_eq!(
             TurtleValue::Base(Box::new(TurtleValue::Iri(Iri::Enclosed(
                 "http://one.example/sparql"
@@ -375,28 +369,28 @@ mod test {
 
     #[test]
     fn prefix_test() {
-        let prefix_sparql = r#"
+        let sparql = r#"
         PREFIX p: <http://two.example/sparql>
 
         "#;
-        let prefix_turtle = r#"
+        let turtle = r#"
 
              @prefix    p:    <http://two.example/turtle> .
         "#;
-        let prefix_empty_turtle = r#"
+        let empty_turtle = r#"
 
              @prefix    :    <http://two.example/empty> .
         "#;
 
-        let (_, prefix_turtle) = prefix(prefix_turtle).unwrap();
+        let (_, turtle) = prefix_turtle(turtle).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "p",
                 Box::new(TurtleValue::Iri(Iri::Enclosed("http://two.example/turtle")))
             )),
-            prefix_turtle
+            turtle
         );
-        let (_, prefix_empty_turtle) = prefix(prefix_empty_turtle).unwrap();
+        let (_, prefix_empty_turtle) = prefix_turtle(empty_turtle).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "",
@@ -405,13 +399,13 @@ mod test {
             prefix_empty_turtle
         );
 
-        let (_, prefix_sparql) = prefix(prefix_sparql).unwrap();
+        let (_, sparql) = prefix_sparql(sparql).unwrap();
         assert_eq!(
             TurtleValue::Prefix((
                 "p",
                 Box::new(TurtleValue::Iri(Iri::Enclosed("http://two.example/sparql")))
             )),
-            prefix_sparql
+            sparql
         );
     }
 
