@@ -2,8 +2,9 @@ use crate::shared::{
     DEFAULT_WELL_KNOWN_PREFIX, RDF_FIRST, RDF_NIL, RDF_REST, XSD_BOOLEAN, XSD_DECIMAL, XSD_DOUBLE,
     XSD_INTEGER,
 };
-use crate::turtle::ast_parser::statements;
-use crate::turtle::ast_struct::{BlankNode, Iri, TurtleValue};
+use crate::triple_common_parser::Literal as ASTLiteral;
+use crate::triple_common_parser::{BlankNode, Iri, TurtleValue};
+use crate::turtle::turtle_parser::statements;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -178,17 +179,17 @@ impl<'a> TurtleDoc<'a> {
             }
             TurtleValue::Literal(literal) => {
                 let literal = match literal {
-                    super::ast_struct::Literal::Boolean(b) => Node::Literal(Literal::Boolean(b)),
-                    super::ast_struct::Literal::Double(b) => Node::Literal(Literal::Double(b)),
-                    super::ast_struct::Literal::Decimal(b) => Node::Literal(Literal::Decimal(b)),
-                    super::ast_struct::Literal::Integer(b) => Node::Literal(Literal::Integer(b)),
-                    super::ast_struct::Literal::Quoted {
+                    ASTLiteral::Boolean(b) => Node::Literal(Literal::Boolean(b)),
+                    ASTLiteral::Double(b) => Node::Literal(Literal::Double(b)),
+                    ASTLiteral::Decimal(b) => Node::Literal(Literal::Decimal(b)),
+                    ASTLiteral::Integer(b) => Node::Literal(Literal::Integer(b)),
+                    ASTLiteral::Quoted {
                         datatype,
                         lang,
                         value,
                     } => {
                         let datatype: Option<Node<'a>> = if let Some(datatype) = datatype {
-                            Some(Self::get_node(*datatype, ctx, statements)?)
+                            Some(Self::get_node(TurtleValue::Iri(datatype), ctx, statements)?)
                         } else {
                             None
                         };

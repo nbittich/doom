@@ -1,8 +1,9 @@
 extern crate core;
 
 pub mod shared;
-pub mod turtle;
 mod sparql;
+mod triple_common_parser;
+pub mod turtle;
 
 pub mod prelude {
     pub use nom::{
@@ -12,7 +13,10 @@ pub mod prelude {
             take_while1,
         },
         character::{
-            complete::{char, i64 as I64, line_ending, multispace0, multispace1, space0},
+            complete::{
+                alphanumeric1, char, i64 as I64, line_ending, multispace0, multispace1, space0,
+                space1,
+            },
             is_alphanumeric, is_space,
         },
         combinator::{all_consuming, cut, eof, map, opt, peek, recognize},
