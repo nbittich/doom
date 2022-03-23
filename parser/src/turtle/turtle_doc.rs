@@ -121,10 +121,10 @@ impl<'a> TurtleDoc<'a> {
         for turtle_value in turtle_values {
             match turtle_value {
                 TurtleValue::Base(base) => {
-                    context.base = Some(TurtleDoc::extract_iri(*base)?);
+                    context.base = Some(Self::extract_iri(base)?);
                 }
                 TurtleValue::Prefix((prefix, iri)) => {
-                    let iri = TurtleDoc::extract_iri(*iri)?;
+                    let iri = TurtleDoc::extract_iri(iri)?;
                     context.prefixes.insert(prefix, iri);
                 }
                 statement @ TurtleValue::Statement {
@@ -146,8 +146,8 @@ impl<'a> TurtleDoc<'a> {
         })
     }
 
-    fn extract_iri(value: TurtleValue) -> Result<&str, TurtleDocError> {
-        if let TurtleValue::Iri(Iri::Enclosed(iri)) = value {
+    fn extract_iri(value: Iri) -> Result<&str, TurtleDocError> {
+        if let Iri::Enclosed(iri) = value {
             Ok(iri)
         } else {
             Err(TurtleDocError {

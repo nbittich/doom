@@ -17,8 +17,8 @@ use crate::triple_common_parser::{comments, BlankNode, Iri, Literal};
 
 #[derive(PartialEq, Debug)]
 pub enum TurtleValue<'a> {
-    Base(Box<TurtleValue<'a>>),
-    Prefix((&'a str, Box<TurtleValue<'a>>)),
+    Base(Iri<'a>),
+    Prefix((&'a str, Iri<'a>)),
     Iri(Iri<'a>),
     Literal(Literal<'a>),
     BNode(BlankNode<'a>),
@@ -110,12 +110,8 @@ fn triples(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 fn directive(s: &str) -> IResult<&str, TurtleValue> {
-    let base_to_turtle = map(alt((base_sparql, base_turtle)), |iri| {
-        TurtleValue::Base(Box::new(TurtleValue::Iri(iri)))
-    });
-    let prefix_to_turtle = map(alt((prefix_turtle, prefix_sparql)), |(p, iri)| {
-        TurtleValue::Prefix((p, Box::new(TurtleValue::Iri(iri))))
-    });
+    let base_to_turtle = map(alt((base_sparql, base_turtle)), TurtleValue::Base);
+    let prefix_to_turtle = map(alt((prefix_turtle, prefix_sparql)), TurtleValue::Prefix);
     alt((base_to_turtle, prefix_to_turtle))(s)
 }
 
