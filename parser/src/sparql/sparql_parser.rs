@@ -1,11 +1,9 @@
 #![allow(dead_code)]
 use crate::prelude::*;
-use crate::triple_common_parser::TurtleValue;
 #[derive(Debug, PartialEq)]
 pub enum SparqlValue<'a> {
     Variable(&'a str),
     Block(Vec<SparqlValue<'a>>),
-    TurtleValue(TurtleValue<'a>),
 }
 
 fn variable(s: &str) -> IResult<&str, SparqlValue> {

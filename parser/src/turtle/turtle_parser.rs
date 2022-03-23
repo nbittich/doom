@@ -13,7 +13,26 @@ use crate::triple_common_parser::prologue::{
 use crate::triple_common_parser::triple::{
     anon_bnode, collection, labeled_bnode, object_list, predicate_list,
 };
-use crate::triple_common_parser::{comments, BlankNode, Iri, TurtleValue};
+use crate::triple_common_parser::{comments, BlankNode, Iri, Literal};
+
+#[derive(PartialEq, Debug)]
+pub enum TurtleValue<'a> {
+    Base(Box<TurtleValue<'a>>),
+    Prefix((&'a str, Box<TurtleValue<'a>>)),
+    Iri(Iri<'a>),
+    Literal(Literal<'a>),
+    BNode(BlankNode<'a>),
+    ObjectList(Vec<TurtleValue<'a>>),
+    Collection(VecDeque<TurtleValue<'a>>),
+    PredicateObject {
+        predicate: Box<TurtleValue<'a>>,
+        object: Box<TurtleValue<'a>>,
+    },
+    Statement {
+        subject: Box<TurtleValue<'a>>,
+        predicate_objects: Vec<TurtleValue<'a>>,
+    },
+}
 
 fn object_lists(s: &str) -> IResult<&str, TurtleValue> {
     object_list(object, TurtleValue::ObjectList)(s)

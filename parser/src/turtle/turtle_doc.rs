@@ -3,8 +3,8 @@ use crate::shared::{
     XSD_INTEGER,
 };
 use crate::triple_common_parser::Literal as ASTLiteral;
-use crate::triple_common_parser::{BlankNode, Iri, TurtleValue};
-use crate::turtle::turtle_parser::statements;
+use crate::triple_common_parser::{BlankNode, Iri};
+use crate::turtle::turtle_parser::{statements, TurtleValue};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};

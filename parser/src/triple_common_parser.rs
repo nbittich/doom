@@ -1,30 +1,11 @@
 use crate::prelude::{
     char, delimited, line_ending, many0, multispace0, preceded, take_until, IResult,
 };
-use std::collections::VecDeque;
 pub const BASE_TURTLE: &str = "@base";
 pub const BASE_SPARQL: &str = "BASE";
 pub const PREFIX_TURTLE: &str = "@prefix";
 pub const PREFIX_SPARQL: &str = "PREFIX";
 
-#[derive(PartialEq, Debug)]
-pub enum TurtleValue<'a> {
-    Base(Box<TurtleValue<'a>>),
-    Prefix((&'a str, Box<TurtleValue<'a>>)),
-    Iri(Iri<'a>),
-    Literal(Literal<'a>),
-    BNode(BlankNode<'a>),
-    ObjectList(Vec<TurtleValue<'a>>),
-    Collection(VecDeque<TurtleValue<'a>>),
-    PredicateObject {
-        predicate: Box<TurtleValue<'a>>,
-        object: Box<TurtleValue<'a>>,
-    },
-    Statement {
-        subject: Box<TurtleValue<'a>>,
-        predicate_objects: Vec<TurtleValue<'a>>,
-    },
-}
 #[derive(PartialEq, Debug)]
 pub enum Iri<'a> {
     Enclosed(&'a str),
