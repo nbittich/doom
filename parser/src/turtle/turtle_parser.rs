@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-use crate::grammar::*;
 use crate::prelude::*;
 use crate::shared::NS_TYPE;
 
@@ -11,7 +10,9 @@ use crate::triple_common_parser::literal::literal;
 use crate::triple_common_parser::prologue::{
     base_sparql, base_turtle, prefix_sparql, prefix_turtle,
 };
-use crate::triple_common_parser::triple::{object_list, predicate_list};
+use crate::triple_common_parser::triple::{
+    anon_bnode, collection, labeled_bnode, object_list, predicate_list,
+};
 use crate::triple_common_parser::{comments, BlankNode, Iri, TurtleValue};
 
 fn object_lists(s: &str) -> IResult<&str, TurtleValue> {
@@ -40,50 +41,26 @@ where
     )
 }
 
-fn collection(s: &str) -> IResult<&str, TurtleValue> {
-    let (remaining, _) = multispace0(s)?;
-    let (remaining, res) = preceded(
-        char('('),
-        terminated(
-            separated_list0(multispace1, object),
-            preceded(multispace0, cut(char(')'))),
-        ),
-    )(remaining)?;
-    if res.is_empty() {
-        Ok((remaining, TurtleValue::Iri(Iri::Enclosed(RDF_NIL))))
-    } else {
-        Ok((remaining, TurtleValue::Collection(VecDeque::from(res))))
-    }
+fn collection_turtle(s: &str) -> IResult<&str, TurtleValue> {
+    map(collection(object), |res| {
+        if res.is_empty() {
+            TurtleValue::Iri(Iri::Enclosed(RDF_NIL))
+        } else {
+            TurtleValue::Collection(VecDeque::from(res))
+        }
+    })(s)
 }
 
-fn anon_bnode(s: &str) -> IResult<&str, TurtleValue> {
-    let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
-    let extract = preceded(
-        char('['),
-        terminated(
-            alt((predicate_lists(unlabeled_subject), unlabeled_subject)),
-            preceded(multispace0, cut(char(']'))),
-        ),
-    );
-    preceded(multispace0, extract)(s) // todo probably multispace here useless
-}
-fn labeled_bnode(s: &str) -> IResult<&str, TurtleValue> {
-    let mut parse_labeled_bnode = delimited(
-        tag(BLANK_NODE_LABEL),
-        take_while(|s: char| !s.is_whitespace()),
-        space0,
-    );
-    let (remaining, _) = multispace0(s)?; // todo maybe remove this
-    let (remaining, label) = parse_labeled_bnode(remaining)?;
-    if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
-        let err: Error<&str> = make_error(label, ErrorKind::IsNot);
-        return Err(nom::Err::Error(err));
+fn anon_bnode_turtle(s: &str) -> IResult<&str, TurtleValue> {
+    fn anon_bnode_parser(s: &str) -> IResult<&str, TurtleValue> {
+        let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
+        alt((predicate_lists(unlabeled_subject), unlabeled_subject))(s)
     }
-    Ok((remaining, TurtleValue::BNode(BlankNode::Labeled(label))))
+    anon_bnode(anon_bnode_parser)(s)
 }
 
 fn blank_node(s: &str) -> IResult<&str, TurtleValue> {
-    alt((labeled_bnode, anon_bnode))(s)
+    alt((map(labeled_bnode, TurtleValue::BNode), anon_bnode_turtle))(s)
 }
 
 fn iri_turtle(s: &str) -> IResult<&str, TurtleValue> {
@@ -94,7 +71,7 @@ fn literal_turtle(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 fn subject(s: &str) -> IResult<&str, TurtleValue> {
-    alt((blank_node, iri_turtle, collection))(s)
+    alt((blank_node, iri_turtle, collection_turtle))(s)
 }
 fn predicate(s: &str) -> IResult<&str, TurtleValue> {
     alt((
@@ -106,7 +83,7 @@ fn predicate(s: &str) -> IResult<&str, TurtleValue> {
 }
 
 fn object(s: &str) -> IResult<&str, TurtleValue> {
-    alt((iri_turtle, blank_node, collection, literal_turtle))(s)
+    alt((iri_turtle, blank_node, collection_turtle, literal_turtle))(s)
 }
 
 fn triples(s: &str) -> IResult<&str, TurtleValue> {
@@ -137,7 +114,7 @@ mod test {
     use crate::triple_common_parser::prologue::{
         base_sparql, base_turtle, prefix_sparql, prefix_turtle,
     };
-    use crate::triple_common_parser::{BlankNode, Iri, TurtleValue};
+    use crate::triple_common_parser::{BlankNode, Iri};
     use crate::turtle::turtle_parser::{labeled_bnode, triples};
 
     #[test]
@@ -205,10 +182,7 @@ mod test {
     fn labeled_bnode_test() {
         let s = "_:alice";
         let res = labeled_bnode(s);
-        assert_eq!(
-            Ok(("", TurtleValue::BNode(BlankNode::Labeled("alice")))),
-            res
-        );
+        assert_eq!(Ok(("", BlankNode::Labeled("alice"))), res);
     }
 
     #[test]

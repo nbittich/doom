@@ -251,8 +251,10 @@ pub(crate) mod literal {
     }
 }
 pub(crate) mod triple {
+    use crate::grammar::BLANK_NODE_LABEL;
     use crate::prelude::*;
-    use crate::triple_common_parser::comments;
+    use crate::triple_common_parser::{comments, BlankNode};
+    use std::collections::VecDeque;
 
     pub(crate) fn object_list<'a, F1, F2, T>(
         object_extractor: F1,
@@ -303,6 +305,52 @@ pub(crate) mod triple {
             )(remaining)?;
             Ok((remaining, map_statement(subject, list)))
         }
+    }
+    pub(crate) fn collection<'a, T, F>(
+        object_extractor: F,
+    ) -> impl Fn(&'a str) -> IResult<&'a str, VecDeque<T>>
+    where
+        F: Fn(&'a str) -> IResult<&'a str, T> + Copy,
+    {
+        move |s| {
+            let (remaining, _) = multispace0(s)?;
+            let (remaining, res) = preceded(
+                char('('),
+                terminated(
+                    separated_list0(multispace1, object_extractor),
+                    preceded(multispace0, cut(char(')'))),
+                ),
+            )(remaining)?;
+            Ok((remaining, VecDeque::from(res)))
+        }
+    }
+    pub(crate) fn anon_bnode<'a, F, T>(
+        anon_bnode_parser: F,
+    ) -> impl Fn(&'a str) -> IResult<&'a str, T>
+    where
+        F: Fn(&'a str) -> IResult<&'a str, T> + Copy,
+    {
+        move |s| {
+            let extract = preceded(
+                char('['),
+                terminated(anon_bnode_parser, preceded(multispace0, cut(char(']')))),
+            );
+            preceded(multispace0, extract)(s)
+        }
+    }
+    pub(crate) fn labeled_bnode(s: &str) -> IResult<&str, BlankNode> {
+        let mut parse_labeled_bnode = delimited(
+            tag(BLANK_NODE_LABEL),
+            take_while(|s: char| !s.is_whitespace()),
+            space0,
+        );
+        let (remaining, _) = multispace0(s)?; // todo maybe remove this
+        let (remaining, label) = parse_labeled_bnode(remaining)?;
+        if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
+            let err: Error<&str> = make_error(label, ErrorKind::IsNot);
+            return Err(nom::Err::Error(err));
+        }
+        Ok((remaining, BlankNode::Labeled(label)))
     }
 }
 pub(crate) fn comments(s: &str) -> IResult<&str, Vec<&str>> {
