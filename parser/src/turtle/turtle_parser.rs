@@ -34,7 +34,7 @@ pub enum TurtleValue<'a> {
     },
 }
 
-fn object_lists(s: &str) -> IResult<&str, TurtleValue> {
+fn object_lists(s: &str) -> ParserResult<TurtleValue> {
     object_list(object, TurtleValue::ObjectList)(s)
 }
 
@@ -60,39 +60,39 @@ where
     )
 }
 
-fn collection_turtle(s: &str) -> IResult<&str, TurtleValue> {
-    map(collection(object), |res| {
+fn collection_turtle(s: &str) -> ParserResult<TurtleValue> {
+    map(collection(object), |res: VecDeque<TurtleValue>| {
         if res.is_empty() {
             TurtleValue::Iri(Iri::Enclosed(RDF_NIL))
         } else {
-            TurtleValue::Collection(VecDeque::from(res))
+            TurtleValue::Collection(res)
         }
     })(s)
 }
 
-fn anon_bnode_turtle(s: &str) -> IResult<&str, TurtleValue> {
-    fn anon_bnode_parser(s: &str) -> IResult<&str, TurtleValue> {
+fn anon_bnode_turtle(s: &str) -> ParserResult<TurtleValue> {
+    fn anon_bnode_parser(s: &str) -> ParserResult<TurtleValue> {
         let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
         alt((predicate_lists(unlabeled_subject), unlabeled_subject))(s)
     }
     anon_bnode(anon_bnode_parser)(s)
 }
 
-fn blank_node(s: &str) -> IResult<&str, TurtleValue> {
+fn blank_node(s: &str) -> ParserResult<TurtleValue> {
     alt((map(labeled_bnode, TurtleValue::BNode), anon_bnode_turtle))(s)
 }
 
-fn iri_turtle(s: &str) -> IResult<&str, TurtleValue> {
+fn iri_turtle(s: &str) -> ParserResult<TurtleValue> {
     map(iri, TurtleValue::Iri)(s)
 }
-fn literal_turtle(s: &str) -> IResult<&str, TurtleValue> {
+fn literal_turtle(s: &str) -> ParserResult<TurtleValue> {
     map(literal, TurtleValue::Literal)(s)
 }
 
-fn subject(s: &str) -> IResult<&str, TurtleValue> {
+fn subject(s: &str) -> ParserResult<TurtleValue> {
     alt((blank_node, iri_turtle, collection_turtle))(s)
 }
-fn predicate(s: &str) -> IResult<&str, TurtleValue> {
+fn predicate(s: &str) -> ParserResult<TurtleValue> {
     alt((
         map(terminated(char('a'), multispace1), |_| {
             TurtleValue::Iri(Iri::Enclosed(NS_TYPE))
@@ -101,21 +101,21 @@ fn predicate(s: &str) -> IResult<&str, TurtleValue> {
     ))(s)
 }
 
-fn object(s: &str) -> IResult<&str, TurtleValue> {
+fn object(s: &str) -> ParserResult<TurtleValue> {
     alt((iri_turtle, blank_node, collection_turtle, literal_turtle))(s)
 }
 
-fn triples(s: &str) -> IResult<&str, TurtleValue> {
+fn triples(s: &str) -> ParserResult<TurtleValue> {
     terminated(predicate_lists(subject), preceded(multispace0, tag(".")))(s)
 }
 
-fn directive(s: &str) -> IResult<&str, TurtleValue> {
+fn directive(s: &str) -> ParserResult<TurtleValue> {
     let base_to_turtle = map(alt((base_sparql, base_turtle)), TurtleValue::Base);
     let prefix_to_turtle = map(alt((prefix_turtle, prefix_sparql)), TurtleValue::Prefix);
     alt((base_to_turtle, prefix_to_turtle))(s)
 }
 
-fn statement(s: &str) -> IResult<&str, TurtleValue> {
+fn statement(s: &str) -> ParserResult<TurtleValue> {
     preceded(comments, alt((directive, triples)))(s)
 }
 

@@ -13,20 +13,19 @@ pub enum SparqlValue<'a> {
     Prologue(Vec<SparqlValue<'a>>),
 }
 
-fn variable(s: &str) -> IResult<&str, SparqlValue> {
+fn variable(s: &str) -> ParserResult<SparqlValue> {
     map(
         preceded(tag("?").or(tag("$")), alphanumeric1),
         SparqlValue::Variable,
     )(s)
 }
-
-fn directive(s: &str) -> IResult<&str, SparqlValue> {
+fn directive(s: &str) -> ParserResult<SparqlValue> {
     alt((
         map(base_sparql, SparqlValue::Base),
         map(prefix_sparql, SparqlValue::Prefix),
     ))(s)
 }
-fn prologue(s: &str) -> IResult<&str, SparqlValue> {
+fn prologue(s: &str) -> ParserResult<SparqlValue> {
     map(
         many0(preceded(multispace0, directive)),
         SparqlValue::Prologue,

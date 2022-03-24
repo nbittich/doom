@@ -26,6 +26,7 @@ pub mod prelude {
         sequence::{delimited, pair, preceded, separated_pair, terminated},
         AsChar, IResult, InputIter, ParseTo, Parser,
     };
+    pub type ParserResult<'a, T> = IResult<&'a str, T>;
 }
 
 pub mod grammar {
