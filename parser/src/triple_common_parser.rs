@@ -35,19 +35,21 @@ pub(crate) mod iri {
     use crate::grammar::PN_LOCAL_ESC;
     use crate::prelude::*;
     use crate::triple_common_parser::Iri;
+    use nom::bytes::complete::escaped;
+    use nom::character::complete::one_of;
     pub(crate) fn prefixed_iri(s: &str) -> ParserResult<Iri> {
         let prefixed = map(
             separated_pair(
                 take_while(|s: char| s.is_alphanumeric()),
                 tag(":"),
-                take_while(|s: char| s.is_alphanumeric() || PN_LOCAL_ESC.contains(&s)), // TODO this won't work in some cases
+                escaped(alphanumeric1, '\\', one_of(PN_LOCAL_ESC)),
             ),
             |(prefix, local_name)| Iri::Prefixed { prefix, local_name },
         );
         preceded(multispace0, prefixed)(s)
     }
     pub(crate) fn iri(s: &str) -> ParserResult<Iri> {
-        alt((prefixed_iri, enclosed_iri))(s)
+        delimited(multispace0, alt((prefixed_iri, enclosed_iri)), multispace0)(s)
     }
     pub(crate) fn enclosed_iri(s: &str) -> ParserResult<Iri> {
         let enclosed = map(
@@ -234,7 +236,8 @@ pub(crate) mod literal {
 pub(crate) mod triple {
     use crate::grammar::BLANK_NODE_LABEL;
     use crate::prelude::*;
-    use crate::triple_common_parser::{comments, BlankNode};
+    use crate::shared::NS_TYPE;
+    use crate::triple_common_parser::{comments, BlankNode, Iri};
     use std::collections::VecDeque;
 
     pub(crate) fn object_list<'a, F1, F2, T>(
@@ -256,6 +259,11 @@ pub(crate) mod triple {
                 Err(nom::Err::Error(err))
             }
         }
+    }
+    pub(crate) fn ns_type(s: &str) -> ParserResult<Iri> {
+        map(terminated(char('a'), multispace1), |_| {
+            Iri::Enclosed(NS_TYPE)
+        })(s)
     }
     pub(crate) fn predicate_list<'a, F1, F2, F3, F4, F5, T>(
         subject_extractor: F1,

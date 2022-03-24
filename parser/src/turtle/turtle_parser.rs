@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
 use crate::prelude::*;
-use crate::shared::NS_TYPE;
 
 use crate::shared::RDF_NIL;
 
@@ -11,7 +10,7 @@ use crate::triple_common_parser::prologue::{
     base_sparql, base_turtle, prefix_sparql, prefix_turtle,
 };
 use crate::triple_common_parser::triple::{
-    anon_bnode, collection, labeled_bnode, object_list, predicate_list,
+    anon_bnode, collection, labeled_bnode, ns_type, object_list, predicate_list,
 };
 use crate::triple_common_parser::{comments, BlankNode, Iri, Literal};
 
@@ -38,11 +37,9 @@ fn object_lists(s: &str) -> ParserResult<TurtleValue> {
     object_list(object, TurtleValue::ObjectList)(s)
 }
 
-fn predicate_lists<'a, F>(
-    subject_extractor: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, TurtleValue>
+fn predicate_lists<'a, F>(subject_extractor: F) -> impl FnMut(&'a str) -> ParserResult<TurtleValue>
 where
-    F: Fn(&'a str) -> IResult<&'a str, TurtleValue>,
+    F: Fn(&'a str) -> ParserResult<TurtleValue>,
 {
     let map_predicate_object = |(predicate, objects)| TurtleValue::PredicateObject {
         predicate: Box::new(predicate),
@@ -93,12 +90,7 @@ fn subject(s: &str) -> ParserResult<TurtleValue> {
     alt((blank_node, iri_turtle, collection_turtle))(s)
 }
 fn predicate(s: &str) -> ParserResult<TurtleValue> {
-    alt((
-        map(terminated(char('a'), multispace1), |_| {
-            TurtleValue::Iri(Iri::Enclosed(NS_TYPE))
-        }),
-        iri_turtle,
-    ))(s)
+    alt((map(ns_type, TurtleValue::Iri), iri_turtle))(s)
 }
 
 fn object(s: &str) -> ParserResult<TurtleValue> {

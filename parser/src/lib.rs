@@ -1,5 +1,3 @@
-extern crate core;
-
 pub mod shared;
 mod sparql;
 mod triple_common_parser;
@@ -30,10 +28,7 @@ pub mod prelude {
 }
 
 pub mod grammar {
-
-    pub const PN_LOCAL_ESC: [char; 16] = [
-        '_', '~', '-', '!', '$', '&', '\'', '(', ')', '*', '+', '=', '/', '?', '#', '%',
-    ];
+    pub const PN_LOCAL_ESC: &str = "_~-!$&\\:()*+=/?#%";
     pub const PERCENT: &str = "%";
     pub const STRING_LITERAL_QUOTE: &str = r#"""#;
     pub const STRING_LITERAL_SINGLE_QUOTE: &str = "'";

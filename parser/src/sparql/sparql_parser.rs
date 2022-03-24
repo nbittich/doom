@@ -1,21 +1,82 @@
-#![allow(dead_code)]
+#![allow(dead_code, unused_must_use)]
+
 use crate::prelude::*;
+use crate::shared::RDF_NIL;
+use crate::sparql::sparql_parser::path::iri;
+use crate::triple_common_parser::literal::literal;
 use crate::triple_common_parser::prologue::{base_sparql, prefix_sparql};
-use crate::triple_common_parser::Iri;
+use crate::triple_common_parser::triple::{
+    anon_bnode, collection, labeled_bnode, ns_type, object_list, predicate_list,
+};
+use crate::triple_common_parser::{comments, BlankNode, Iri, Literal};
+use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq)]
 pub enum SparqlValue<'a> {
     Variable(&'a str),
-    Block(Vec<SparqlValue<'a>>),
+    BNode(BlankNode<'a>),
+    Collection(VecDeque<SparqlValue<'a>>),
     Base(Iri<'a>),
+    Literal(Literal<'a>),
     Prefix((&'a str, Iri<'a>)),
-    Iri(Iri<'a>),
+    Path(Path<'a>),
+    ObjectList(Vec<SparqlValue<'a>>),
+    PredicateObject {
+        predicate: Box<SparqlValue<'a>>,
+        object: Box<SparqlValue<'a>>,
+    },
+    TriplePattern {
+        subject: Box<SparqlValue<'a>>,
+        predicate_objects: Vec<SparqlValue<'a>>,
+    },
+    GraphPattern {
+        graph: Box<SparqlValue<'a>>,
+        block: Box<SparqlValue<'a>>,
+    },
+    Block(Vec<SparqlValue<'a>>),
     Prologue(Vec<SparqlValue<'a>>),
+}
+#[derive(Debug, PartialEq)]
+pub enum Path<'a> {
+    Iri(Iri<'a>),
+    Inverse(Iri<'a>),
+    Sequence(Vec<Path<'a>>),
+    Alternative {
+        elt1: Box<Path<'a>>,
+        elt2: Box<Path<'a>>,
+    },
+}
+
+mod path {
+    use crate::prelude::*;
+    use crate::sparql::sparql_parser::Path;
+    use crate::triple_common_parser::iri::iri as common_iri;
+    pub(super) fn inverse_iri(s: &str) -> ParserResult<Path> {
+        map(preceded(char('^'), common_iri), Path::Inverse)(s)
+    }
+    pub(super) fn iri(s: &str) -> ParserResult<Path> {
+        alt((map(common_iri, Path::Iri), inverse_iri))(s)
+    }
+    pub(super) fn sequence(s: &str) -> ParserResult<Path> {
+        map(separated_list1(tag("/"), iri), Path::Sequence)(s)
+    }
+    pub(super) fn alternative_path(s: &str) -> ParserResult<Path> {
+        map(
+            separated_pair(iri, delimited(multispace0, tag("|"), multispace0), iri),
+            |(elt1, elt2)| Path::Alternative {
+                elt1: Box::new(elt1),
+                elt2: Box::new(elt2),
+            },
+        )(s)
+    }
 }
 
 fn variable(s: &str) -> ParserResult<SparqlValue> {
     map(
-        preceded(tag("?").or(tag("$")), alphanumeric1),
+        terminated(
+            preceded(multispace0, preceded(tag("?").or(tag("$")), alphanumeric1)),
+            multispace0,
+        ),
         SparqlValue::Variable,
     )(s)
 }
@@ -25,6 +86,20 @@ fn directive(s: &str) -> ParserResult<SparqlValue> {
         map(prefix_sparql, SparqlValue::Prefix),
     ))(s)
 }
+
+fn graph_pattern(s: &str) -> ParserResult<SparqlValue> {
+    let extract_graph_word = preceded(terminated(comments, multispace0), tag_no_case("graph"));
+    preceded(
+        extract_graph_word,
+        map(
+            pair(alt((variable, map(iri, SparqlValue::Path))), block),
+            |(g, b)| SparqlValue::GraphPattern {
+                graph: Box::new(g),
+                block: Box::new(b),
+            },
+        ),
+    )(s)
+}
 fn prologue(s: &str) -> ParserResult<SparqlValue> {
     map(
         many0(preceded(multispace0, directive)),
@@ -32,10 +107,110 @@ fn prologue(s: &str) -> ParserResult<SparqlValue> {
     )(s)
 }
 
+fn object(s: &str) -> ParserResult<SparqlValue> {
+    alt((
+        map(iri, SparqlValue::Path),
+        variable,
+        map(literal, SparqlValue::Literal),
+        blank_node,
+        collection_sparql,
+    ))(s)
+}
+fn subject(s: &str) -> ParserResult<SparqlValue> {
+    alt((
+        variable,
+        blank_node,
+        map(iri, SparqlValue::Path),
+        collection_sparql,
+    ))(s)
+}
+
+fn triple_pattern(s: &str) -> ParserResult<SparqlValue> {
+    terminated(
+        preceded(
+            comments,
+            terminated(
+                predicate_lists(subject),
+                preceded(multispace0, opt(tag("."))),
+            ),
+        ),
+        comments,
+    )(s)
+}
+
+fn block(s: &str) -> ParserResult<SparqlValue> {
+    delimited(
+        preceded(multispace0, tag("{")),
+        map(many0(alt((triple_pattern, block))), SparqlValue::Block),
+        preceded(multispace0, tag("}")),
+    )(s)
+}
+
+fn collection_sparql(s: &str) -> ParserResult<SparqlValue> {
+    map(collection(object), |res: VecDeque<SparqlValue>| {
+        if res.is_empty() {
+            SparqlValue::Path(Path::Iri(Iri::Enclosed(RDF_NIL)))
+        } else {
+            SparqlValue::Collection(res)
+        }
+    })(s)
+}
+
+fn blank_node(s: &str) -> ParserResult<SparqlValue> {
+    alt((map(labeled_bnode, SparqlValue::BNode), anon_bnode_sparql))(s)
+}
+
+fn anon_bnode_sparql(s: &str) -> ParserResult<SparqlValue> {
+    fn anon_bnode_parser(s: &str) -> ParserResult<SparqlValue> {
+        let unlabeled_subject = |s| Ok((s, SparqlValue::BNode(BlankNode::Unlabeled)));
+        alt((predicate_lists(unlabeled_subject), unlabeled_subject))(s)
+    }
+    anon_bnode(anon_bnode_parser)(s)
+}
+
+fn object_lists(s: &str) -> ParserResult<SparqlValue> {
+    object_list(object, SparqlValue::ObjectList)(s)
+}
+fn predicate(s: &str) -> ParserResult<SparqlValue> {
+    alt((
+        map(ns_type, |iri| SparqlValue::Path(Path::Iri(iri))),
+        map(iri, SparqlValue::Path),
+        variable,
+    ))(s)
+}
+
+fn predicate_lists<'a, F>(subject_extractor: F) -> impl FnMut(&'a str) -> ParserResult<SparqlValue>
+where
+    F: Fn(&'a str) -> ParserResult<SparqlValue>,
+{
+    let map_predicate_object = |(predicate, objects)| SparqlValue::PredicateObject {
+        predicate: Box::new(predicate),
+        object: Box::new(objects),
+    };
+    predicate_list(
+        subject_extractor,
+        predicate,
+        object_lists,
+        map_predicate_object,
+        |subject, list| SparqlValue::TriplePattern {
+            subject: Box::new(subject),
+            predicate_objects: list,
+        },
+    )
+}
+
 #[cfg(test)]
 mod test {
-    use crate::sparql::sparql_parser::{directive, prologue, variable, SparqlValue};
-    use crate::triple_common_parser::Iri;
+    use crate::shared::NS_TYPE;
+    use crate::sparql::sparql_parser::Path::{Alternative, Sequence};
+    use crate::sparql::sparql_parser::SparqlValue::{
+        Block, GraphPattern, PredicateObject, TriplePattern, Variable,
+    };
+    use crate::sparql::sparql_parser::{
+        block, directive, graph_pattern, path, prologue, variable, Path, SparqlValue,
+    };
+    use crate::triple_common_parser::Iri::Prefixed;
+    use crate::triple_common_parser::{BlankNode, Iri};
 
     #[test]
     fn test_variable() {
@@ -92,5 +267,169 @@ mod test {
         } else {
             panic!("not prologue");
         }
+    }
+
+    #[test]
+    fn test_block() {
+        let s = r#"
+            {
+                #comment
+                ?s ?p ?o; #comment
+                ?y [?x ?z] .#comment
+                #comment
+                {
+                #comment
+                    ?v ?w ?z #comment
+                }
+            }
+        "#;
+        let (_, block) = block(s).unwrap();
+        assert_eq!(
+            SparqlValue::Block(vec![
+                SparqlValue::TriplePattern {
+                    subject: Box::new(Variable("s")),
+                    predicate_objects: vec![
+                        PredicateObject {
+                            predicate: Box::new(Variable("p")),
+                            object: Box::new(Variable("o"))
+                        },
+                        PredicateObject {
+                            predicate: Box::new(Variable("y")),
+                            object: Box::new(TriplePattern {
+                                subject: Box::new(SparqlValue::BNode(BlankNode::Unlabeled)),
+                                predicate_objects: vec![PredicateObject {
+                                    predicate: Box::new(Variable("x")),
+                                    object: Box::new(Variable("z"))
+                                },]
+                            })
+                        },
+                    ]
+                },
+                Block(vec![TriplePattern {
+                    subject: Box::new(Variable("v")),
+                    predicate_objects: vec![PredicateObject {
+                        predicate: Box::new(Variable("w")),
+                        object: Box::new(Variable("z"))
+                    },]
+                }])
+            ]),
+            block
+        );
+    }
+    #[test]
+    fn test_graph_pattern() {
+        let s = r#"
+        # a comment
+            Graph ?g { ?s a <http://whatsup.com/X>} # a comment
+        "#;
+        let (_, gp) = graph_pattern(s).unwrap();
+        assert_eq!(
+            GraphPattern {
+                graph: Box::new(Variable("g")),
+                block: Box::new(Block(vec![TriplePattern {
+                    subject: Box::new(Variable("s")),
+                    predicate_objects: vec![PredicateObject {
+                        predicate: Box::new(SparqlValue::Path(Path::Iri(Iri::Enclosed(NS_TYPE)))),
+                        object: Box::new(SparqlValue::Path(Path::Iri(Iri::Enclosed(
+                            "http://whatsup.com/X"
+                        ))))
+                    }]
+                }]))
+            },
+            gp
+        );
+
+        let s = r#"
+        # a comment
+            GRAPH <http://ggg.com>{
+            ?s ?p ?o.
+            } # a comment
+        "#;
+        let (_, gp) = graph_pattern(s).unwrap();
+        assert_eq!(
+            GraphPattern {
+                graph: Box::new(SparqlValue::Path(Path::Iri(Iri::Enclosed(
+                    "http://ggg.com"
+                )))),
+                block: Box::new(Block(vec![TriplePattern {
+                    subject: Box::new(Variable("s")),
+                    predicate_objects: vec![PredicateObject {
+                        predicate: Box::new(Variable("p")),
+                        object: Box::new(Variable("o"))
+                    }]
+                }]))
+            },
+            gp
+        );
+    }
+
+    #[test]
+    fn test_inverse_iri() {
+        let s = "^foaf:knows";
+        let (_, path) = path::inverse_iri(s).unwrap();
+        assert_eq!(
+            Path::Inverse(Iri::Prefixed {
+                prefix: "foaf",
+                local_name: "knows"
+            }),
+            path
+        );
+        let s = "^<http://foaf.com/knows>";
+        let (_, path) = path::inverse_iri(s).unwrap();
+        assert_eq!(Path::Inverse(Iri::Enclosed("http://foaf.com/knows")), path);
+    }
+    #[test]
+    fn test_alternative_path() {
+        let s = "dc:title|rdfs:label";
+        let (_, path) = path::alternative_path(s).unwrap();
+        assert_eq!(
+            Alternative {
+                elt1: Box::new(Path::Iri(Iri::Prefixed {
+                    prefix: "dc",
+                    local_name: "title",
+                })),
+                elt2: Box::new(Path::Iri(Iri::Prefixed {
+                    prefix: "rdfs",
+                    local_name: "label",
+                }))
+            },
+            path
+        );
+
+        let s = "dc:title | ^<http://rdfs.com/label>";
+        let (_, path) = path::alternative_path(s).unwrap();
+        assert_eq!(
+            Alternative {
+                elt1: Box::new(Path::Iri(Iri::Prefixed {
+                    prefix: "dc",
+                    local_name: "title",
+                })),
+                elt2: Box::new(Path::Inverse(Iri::Enclosed("http://rdfs.com/label")))
+            },
+            path
+        );
+    }
+
+    #[test]
+    fn test_sequence_path() {
+        let s = "foaf:knows/^foaf:knows/foaf:name";
+        let (_, path) = path::sequence(s).unwrap();
+        assert_eq!(
+            Sequence(vec![
+                Path::Iri(Prefixed {
+                    prefix: "foaf",
+                    local_name: "knows",
+                },),
+                Path::Inverse(Prefixed {
+                    prefix: "foaf",
+                    local_name: "knows",
+                },),
+                Path::Iri(Prefixed {
+                    prefix: "foaf",
+                    local_name: "name",
+                },),
+            ],),
+            path
+        )
     }
 }
