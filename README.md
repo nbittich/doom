@@ -1,5 +1,5 @@
 # Doom
 
-## todo
+![Build](https://github.com/nbittich/doom/actions/workflows/rust.yml/badge.svg)
 
-- turtle : comments handling, error managament
+## Linked data experiments
