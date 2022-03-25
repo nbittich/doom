@@ -83,6 +83,8 @@ impl<'a> TurtleDoc<'a> {
     pub fn is_empty(&self) -> bool {
         self.statements.is_empty()
     }
+
+    // TODO this is temporary. it won't work if node is a ref because comparing a ref & iri is not the same thing
     pub fn list_statements(
         &self,
         subject: Option<&Node>,
@@ -437,12 +439,20 @@ impl Display for TurtleDocError {
 mod test {
     use crate::turtle::turtle_doc::{Literal, Node, TurtleDoc};
     use std::borrow::Cow;
+    use Cow::Borrowed;
+    use Node::Iri;
 
     #[test]
     fn turtle_doc_test() {
         let doc = include_str!("example/input.ttl");
+        let expected = include_str!("example/output.ttl");
         let turtle = TurtleDoc::from_string(doc).unwrap();
-        println!("{turtle}");
+        let expected_turtle = TurtleDoc::from_string(expected).unwrap();
+        let expected_statements = expected_turtle.list_statements(None, None, None);
+        let statements = turtle.list_statements(None, None, None);
+        assert_eq!(&expected_statements.len(), &statements.len());
+
+        assert_eq!(expected_turtle.to_string(), turtle.to_string());
     }
     #[test]
     fn turtle_doc_bnode_test() {
@@ -457,7 +467,7 @@ mod test {
 
         "#;
         let turtle = TurtleDoc::from_string(doc).unwrap();
-        println!("{turtle}");
+        assert_eq!(8, turtle.statements.len());
     }
 
     #[test]
@@ -467,7 +477,7 @@ mod test {
         :a :b ( "apple" "banana" ) .
         "#;
         let turtle = TurtleDoc::from_string(s).unwrap();
-        println!("{turtle}");
+        assert_eq!(5, turtle.statements.len());
     }
     #[test]
     fn turtle_doc_add_test() {
@@ -486,17 +496,21 @@ mod test {
 
         "#;
         let turtle1 = TurtleDoc::from_string(doc1).unwrap();
+        assert_eq!(5, (&turtle1.statements).len());
+
         let turtle2 = TurtleDoc::from_string(doc2).unwrap();
+        assert_eq!(8, (&turtle2.statements).len());
+
         let turtle3 = turtle1 + turtle2;
-        println!("{turtle3}");
+        assert_eq!(13, (&turtle3.statements).len());
         let mut turtle = TurtleDoc::default();
         turtle.add_statement(
-            Node::Iri(Cow::Borrowed("http://xxx.com/123")),
-            Node::Iri(Cow::Borrowed("http://bar.com/345")),
+            Iri(Borrowed("http://xxx.com/123")),
+            Iri(Borrowed("http://bar.com/345")),
             Node::Literal(Literal::Decimal(123f32)),
         );
         let turtle4 = turtle + turtle3;
-        println!("{turtle4}");
+        assert_eq!(14, turtle4.statements.len());
     }
     #[test]
     fn turtle_doc_list_statements_test() {
@@ -511,17 +525,13 @@ mod test {
 
         "#;
         let turtle = TurtleDoc::from_string(doc).unwrap();
-        let statements = turtle.list_statements(
-            None,
-            None,
-            Some(&Node::Iri(Cow::Borrowed("bob@example.com"))),
-        );
+        let statements =
+            turtle.list_statements(None, None, Some(&Iri(Borrowed("bob@example.com"))));
         assert_eq!(1, statements.len());
         println!("{statements:?}");
         let statement = statements[0];
         let statements = turtle.list_statements(Some(&statement.subject), None, None);
         assert_eq!(5, statements.len());
-        println!("{statements:?}");
     }
 
     #[test]
@@ -550,7 +560,6 @@ mod test {
          "#;
 
         let triples = TurtleDoc::from_string(triple).unwrap();
-        println!("{:?}", triples);
         assert_eq!(triples.len(), 12);
     }
     #[test]
@@ -572,6 +581,5 @@ mod test {
          "#;
         let triples = TurtleDoc::from_string(triples).unwrap();
         assert_eq!(9, triples.len());
-        dbg!(&triples);
     }
 }
