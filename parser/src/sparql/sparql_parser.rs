@@ -40,6 +40,9 @@ pub enum SparqlValue<'a> {
 pub enum Path<'a> {
     Iri(Iri<'a>),
     Inverse(Iri<'a>),
+    OneOrMore(Box<Path<'a>>),
+    Negate(Box<Path<'a>>),
+    ZeroOrMore(Box<Path<'a>>),
     Sequence(Vec<Path<'a>>),
     Alternative {
         elt1: Box<Path<'a>>,
@@ -57,12 +60,24 @@ mod path {
     pub(super) fn iri(s: &str) -> ParserResult<Path> {
         alt((map(common_iri, Path::Iri), inverse_iri))(s)
     }
-    pub(super) fn sequence(s: &str) -> ParserResult<Path> {
-        map(separated_list1(tag("/"), iri), Path::Sequence)(s)
+    pub(super) fn path(s: &str) -> ParserResult<Path> {
+        alt((arbitrary_length_path, iri))(s)
     }
-    pub(super) fn alternative_path(s: &str) -> ParserResult<Path> {
+    pub(super) fn arbitrary_length_path(s: &str) -> ParserResult<Path> {
+        alt((
+            map(terminated(iri, char('+')), |p| Path::OneOrMore(Box::new(p))),
+            map(terminated(iri, char('*')), |p| {
+                Path::ZeroOrMore(Box::new(p))
+            }),
+        ))(s)
+    }
+
+    pub(super) fn sequence(s: &str) -> ParserResult<Path> {
+        map(separated_list1(tag("/"), path), Path::Sequence)(s)
+    }
+    pub(super) fn alternative(s: &str) -> ParserResult<Path> {
         map(
-            separated_pair(iri, delimited(multispace0, tag("|"), multispace0), iri),
+            separated_pair(path, delimited(multispace0, tag("|"), multispace0), path),
             |(elt1, elt2)| Path::Alternative {
                 elt1: Box::new(elt1),
                 elt2: Box::new(elt2),
@@ -378,10 +393,30 @@ mod test {
         let (_, path) = path::inverse_iri(s).unwrap();
         assert_eq!(Path::Inverse(Iri::Enclosed("http://foaf.com/knows")), path);
     }
+
+    #[test]
+    fn test_arbitrary_length_path() {
+        let s = "rdfs:subClassOf*";
+        let (_, path) = path::arbitrary_length_path(s).unwrap();
+        assert_eq!(
+            Path::ZeroOrMore(Box::new(Path::Iri(Iri::Prefixed {
+                prefix: "rdfs",
+                local_name: "subClassOf"
+            }))
+        ),path);
+        let s = "rdfs:subClassOf+";
+        let (_, path) = path::arbitrary_length_path(s).unwrap();
+        assert_eq!(
+            Path::OneOrMore(Box::new(Path::Iri(Iri::Prefixed {
+                prefix: "rdfs",
+                local_name: "subClassOf"
+            }))
+        ),path);
+    }
     #[test]
     fn test_alternative_path() {
         let s = "dc:title|rdfs:label";
-        let (_, path) = path::alternative_path(s).unwrap();
+        let (_, path) = path::alternative(s).unwrap();
         assert_eq!(
             Alternative {
                 elt1: Box::new(Path::Iri(Iri::Prefixed {
@@ -397,7 +432,7 @@ mod test {
         );
 
         let s = "dc:title | ^<http://rdfs.com/label>";
-        let (_, path) = path::alternative_path(s).unwrap();
+        let (_, path) = path::alternative(s).unwrap();
         assert_eq!(
             Alternative {
                 elt1: Box::new(Path::Iri(Iri::Prefixed {
