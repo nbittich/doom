@@ -2,7 +2,7 @@
 
 use crate::prelude::*;
 use crate::shared::RDF_NIL;
-use crate::sparql::sparql_parser::path::iri;
+use crate::sparql::sparql_parser::path::{group, iri, negate};
 use crate::triple_common_parser::literal::literal;
 use crate::triple_common_parser::prologue::{base_sparql, prefix_sparql};
 use crate::triple_common_parser::triple::{
@@ -62,7 +62,7 @@ mod path {
         alt((map(common_iri, Path::Iri), inverse_iri))(s)
     }
     pub(super) fn path(s: &str) -> ParserResult<Path> {
-        alt((arbitrary_length_path, iri))(s)
+        alt((arbitrary_length, iri))(s)
     }
 
     pub(super) fn group(s: &str) -> ParserResult<Path> {
@@ -88,8 +88,7 @@ mod path {
             Path::Negate(Box::new(p))
         })(s)
     }
-
-    pub(super) fn arbitrary_length_path(s: &str) -> ParserResult<Path> {
+    pub(super) fn arbitrary_length(s: &str) -> ParserResult<Path> {
         alt((
             map(terminated(iri, char('+')), |p| Path::OneOrMore(Box::new(p))),
             map(terminated(iri, char('*')), |p| {
@@ -221,7 +220,7 @@ fn object_lists(s: &str) -> ParserResult<SparqlValue> {
 fn predicate(s: &str) -> ParserResult<SparqlValue> {
     alt((
         map(ns_type, |iri| SparqlValue::Path(Path::Iri(iri))),
-        map(iri, SparqlValue::Path),
+        map(alt((negate, group, path::path)), SparqlValue::Path),
         variable,
     ))(s)
 }
@@ -428,7 +427,7 @@ mod test {
     #[test]
     fn test_arbitrary_length_path() {
         let s = "rdfs:subClassOf*";
-        let (_, path) = path::arbitrary_length_path(s).unwrap();
+        let (_, path) = path::arbitrary_length(s).unwrap();
         assert_eq!(
             Path::ZeroOrMore(Box::new(Iri(Prefixed {
                 prefix: "rdfs",
@@ -437,7 +436,7 @@ mod test {
             path
         );
         let s = "rdfs:subClassOf+";
-        let (_, path) = path::arbitrary_length_path(s).unwrap();
+        let (_, path) = path::arbitrary_length(s).unwrap();
         assert_eq!(
             Path::OneOrMore(Box::new(Iri(Prefixed {
                 prefix: "rdfs",
