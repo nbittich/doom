@@ -41,6 +41,7 @@ pub enum Path<'a> {
     Iri(Iri<'a>),
     Inverse(Iri<'a>),
     OneOrMore(Box<Path<'a>>),
+    Group(Box<Path<'a>>),
     Negate(Box<Path<'a>>),
     ZeroOrMore(Box<Path<'a>>),
     Sequence(Vec<Path<'a>>),
@@ -63,6 +64,31 @@ mod path {
     pub(super) fn path(s: &str) -> ParserResult<Path> {
         alt((arbitrary_length_path, iri))(s)
     }
+
+    pub(super) fn group(s: &str) -> ParserResult<Path> {
+        fn group_fn(s: &str) -> ParserResult<Path> {
+            delimited(char('('), alt((alternative, sequence, path)), char(')'))(s)
+        }
+        map(
+            alt((
+                map(terminated(group_fn, char('+')), |p| {
+                    Path::OneOrMore(Box::new(p))
+                }),
+                map(terminated(group_fn, char('*')), |p| {
+                    Path::ZeroOrMore(Box::new(p))
+                }),
+                group_fn,
+            )),
+            |p| Path::Group(Box::new(p)),
+        )(s)
+    }
+
+    pub(super) fn negate(s: &str) -> ParserResult<Path> {
+        map(preceded(char('!'), alt((group, path))), |p| {
+            Path::Negate(Box::new(p))
+        })(s)
+    }
+
     pub(super) fn arbitrary_length_path(s: &str) -> ParserResult<Path> {
         alt((
             map(terminated(iri, char('+')), |p| Path::OneOrMore(Box::new(p))),
@@ -73,7 +99,13 @@ mod path {
     }
 
     pub(super) fn sequence(s: &str) -> ParserResult<Path> {
-        map(separated_list1(tag("/"), path), Path::Sequence)(s)
+        map(separated_list1(tag("/"), path), |mut seq| {
+            if seq.len() == 1 {
+                seq.pop().unwrap()
+            } else {
+                Path::Sequence(seq)
+            }
+        })(s)
     }
     pub(super) fn alternative(s: &str) -> ParserResult<Path> {
         map(
@@ -217,15 +249,18 @@ where
 #[cfg(test)]
 mod test {
     use crate::shared::NS_TYPE;
-    use crate::sparql::sparql_parser::Path::{Alternative, Sequence};
+    use crate::sparql::sparql_parser::Path::{
+        Alternative, Group, Inverse, Negate, OneOrMore, Sequence,
+    };
     use crate::sparql::sparql_parser::SparqlValue::{
         Block, GraphPattern, PredicateObject, TriplePattern, Variable,
     };
     use crate::sparql::sparql_parser::{
         block, directive, graph_pattern, path, prologue, variable, Path, SparqlValue,
     };
-    use crate::triple_common_parser::Iri::Prefixed;
-    use crate::triple_common_parser::{BlankNode, Iri};
+    use crate::triple_common_parser::BlankNode;
+    use crate::triple_common_parser::Iri::{Enclosed, Prefixed};
+    use Path::Iri;
 
     #[test]
     fn test_variable() {
@@ -238,12 +273,12 @@ mod test {
     fn test_directive() {
         let s = "BASE <http://xxx.com>";
         assert_eq!(
-            SparqlValue::Base(Iri::Enclosed("http://xxx.com")),
+            SparqlValue::Base(Enclosed("http://xxx.com")),
             directive(s).unwrap().1
         );
         let s = "PREFIX p: <http://xxx.com>";
         assert_eq!(
-            SparqlValue::Prefix(("p", Iri::Enclosed("http://xxx.com"))),
+            SparqlValue::Prefix(("p", Enclosed("http://xxx.com"))),
             directive(s).unwrap().1
         );
     }
@@ -261,23 +296,23 @@ mod test {
             assert_eq!(5, vec.len());
             assert!(vec
                 .iter()
-                .find(|p| *p == &SparqlValue::Base(Iri::Enclosed("http://xxx.com")))
+                .find(|p| *p == &SparqlValue::Base(Enclosed("http://xxx.com")))
                 .is_some());
             assert!(vec
                 .iter()
-                .find(|p| *p == &SparqlValue::Prefix(("s", Iri::Enclosed("http://sss.com"))))
+                .find(|p| *p == &SparqlValue::Prefix(("s", Enclosed("http://sss.com"))))
                 .is_some());
             assert!(vec
                 .iter()
-                .find(|p| *p == &SparqlValue::Prefix(("p", Iri::Enclosed("http://ppp.com"))))
+                .find(|p| *p == &SparqlValue::Prefix(("p", Enclosed("http://ppp.com"))))
                 .is_some());
             assert!(vec
                 .iter()
-                .find(|p| *p == &SparqlValue::Prefix(("q", Iri::Enclosed("http://qqq.com"))))
+                .find(|p| *p == &SparqlValue::Prefix(("q", Enclosed("http://qqq.com"))))
                 .is_some());
             assert!(vec
                 .iter()
-                .find(|p| *p == &SparqlValue::Prefix(("r", Iri::Enclosed("http://rrr.com"))))
+                .find(|p| *p == &SparqlValue::Prefix(("r", Enclosed("http://rrr.com"))))
                 .is_some());
         } else {
             panic!("not prologue");
@@ -344,10 +379,8 @@ mod test {
                 block: Box::new(Block(vec![TriplePattern {
                     subject: Box::new(Variable("s")),
                     predicate_objects: vec![PredicateObject {
-                        predicate: Box::new(SparqlValue::Path(Path::Iri(Iri::Enclosed(NS_TYPE)))),
-                        object: Box::new(SparqlValue::Path(Path::Iri(Iri::Enclosed(
-                            "http://whatsup.com/X"
-                        ))))
+                        predicate: Box::new(SparqlValue::Path(Iri(Enclosed(NS_TYPE)))),
+                        object: Box::new(SparqlValue::Path(Iri(Enclosed("http://whatsup.com/X"))))
                     }]
                 }]))
             },
@@ -363,9 +396,7 @@ mod test {
         let (_, gp) = graph_pattern(s).unwrap();
         assert_eq!(
             GraphPattern {
-                graph: Box::new(SparqlValue::Path(Path::Iri(Iri::Enclosed(
-                    "http://ggg.com"
-                )))),
+                graph: Box::new(SparqlValue::Path(Iri(Enclosed("http://ggg.com")))),
                 block: Box::new(Block(vec![TriplePattern {
                     subject: Box::new(Variable("s")),
                     predicate_objects: vec![PredicateObject {
@@ -383,7 +414,7 @@ mod test {
         let s = "^foaf:knows";
         let (_, path) = path::inverse_iri(s).unwrap();
         assert_eq!(
-            Path::Inverse(Iri::Prefixed {
+            Path::Inverse(Prefixed {
                 prefix: "foaf",
                 local_name: "knows"
             }),
@@ -391,7 +422,7 @@ mod test {
         );
         let s = "^<http://foaf.com/knows>";
         let (_, path) = path::inverse_iri(s).unwrap();
-        assert_eq!(Path::Inverse(Iri::Enclosed("http://foaf.com/knows")), path);
+        assert_eq!(Path::Inverse(Enclosed("http://foaf.com/knows")), path);
     }
 
     #[test]
@@ -399,19 +430,64 @@ mod test {
         let s = "rdfs:subClassOf*";
         let (_, path) = path::arbitrary_length_path(s).unwrap();
         assert_eq!(
-            Path::ZeroOrMore(Box::new(Path::Iri(Iri::Prefixed {
+            Path::ZeroOrMore(Box::new(Iri(Prefixed {
                 prefix: "rdfs",
                 local_name: "subClassOf"
-            }))
-        ),path);
+            }))),
+            path
+        );
         let s = "rdfs:subClassOf+";
         let (_, path) = path::arbitrary_length_path(s).unwrap();
         assert_eq!(
-            Path::OneOrMore(Box::new(Path::Iri(Iri::Prefixed {
+            Path::OneOrMore(Box::new(Iri(Prefixed {
                 prefix: "rdfs",
                 local_name: "subClassOf"
-            }))
-        ),path);
+            }))),
+            path
+        );
+    }
+    #[test]
+    fn test_negate() {
+        let s = "!rdfs:subClassOf*";
+        let (_, path) = path::negate(s).unwrap();
+        assert_eq!(
+            Path::Negate(Box::new(Path::ZeroOrMore(Box::new(Iri(Prefixed {
+                prefix: "rdfs",
+                local_name: "subClassOf"
+            }))))),
+            path
+        );
+        let s = "!(rdfs:subClassOf+)";
+        let (_, path) = path::negate(s).unwrap();
+        assert_eq!(
+            Path::Negate(Box::new(Path::Group(Box::new(Path::OneOrMore(Box::new(
+                Iri(Prefixed {
+                    prefix: "rdfs",
+                    local_name: "subClassOf"
+                })
+            )))))),
+            path
+        );
+    }
+    #[test]
+    fn test_group() {
+        let s = "!(rdf:type|^rdf:type)+";
+        let (_, path) = path::negate(s).unwrap();
+        assert_eq!(
+            Negate(Box::new(Group(Box::new(OneOrMore(Box::new(
+                Alternative {
+                    elt1: Box::new(Iri(Prefixed {
+                        prefix: "rdf",
+                        local_name: "type",
+                    },)),
+                    elt2: Box::new(Inverse(Prefixed {
+                        prefix: "rdf",
+                        local_name: "type",
+                    },),)
+                }
+            ),))),)),
+            path
+        );
     }
     #[test]
     fn test_alternative_path() {
@@ -419,11 +495,11 @@ mod test {
         let (_, path) = path::alternative(s).unwrap();
         assert_eq!(
             Alternative {
-                elt1: Box::new(Path::Iri(Iri::Prefixed {
+                elt1: Box::new(Iri(Prefixed {
                     prefix: "dc",
                     local_name: "title",
                 })),
-                elt2: Box::new(Path::Iri(Iri::Prefixed {
+                elt2: Box::new(Iri(Prefixed {
                     prefix: "rdfs",
                     local_name: "label",
                 }))
@@ -435,11 +511,11 @@ mod test {
         let (_, path) = path::alternative(s).unwrap();
         assert_eq!(
             Alternative {
-                elt1: Box::new(Path::Iri(Iri::Prefixed {
+                elt1: Box::new(Iri(Prefixed {
                     prefix: "dc",
                     local_name: "title",
                 })),
-                elt2: Box::new(Path::Inverse(Iri::Enclosed("http://rdfs.com/label")))
+                elt2: Box::new(Path::Inverse(Enclosed("http://rdfs.com/label")))
             },
             path
         );
@@ -447,19 +523,19 @@ mod test {
 
     #[test]
     fn test_sequence_path() {
-        let s = "foaf:knows/^foaf:knows/foaf:name";
+        let s = "foaf:knows+/^foaf:knows/foaf:name";
         let (_, path) = path::sequence(s).unwrap();
         assert_eq!(
             Sequence(vec![
-                Path::Iri(Prefixed {
+                OneOrMore(Box::new(Iri(Prefixed {
                     prefix: "foaf",
                     local_name: "knows",
-                },),
+                }))),
                 Path::Inverse(Prefixed {
                     prefix: "foaf",
                     local_name: "knows",
                 },),
-                Path::Iri(Prefixed {
+                Iri(Prefixed {
                     prefix: "foaf",
                     local_name: "name",
                 },),
