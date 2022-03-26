@@ -261,6 +261,12 @@ mod test {
     use crate::triple_common_parser::Iri::{Enclosed, Prefixed};
     use Path::Iri;
 
+    macro_rules! a_box {
+        ($a:expr) => {
+            Box::new($a)
+        }
+    }
+
     #[test]
     fn test_variable() {
         let s = "?pxx ";
@@ -336,29 +342,29 @@ mod test {
         assert_eq!(
             SparqlValue::Block(vec![
                 SparqlValue::TriplePattern {
-                    subject: Box::new(Variable("s")),
+                    subject: a_box!(Variable("s")),
                     predicate_objects: vec![
                         PredicateObject {
-                            predicate: Box::new(Variable("p")),
-                            object: Box::new(Variable("o"))
+                            predicate: a_box!(Variable("p")),
+                            object: a_box!(Variable("o"))
                         },
                         PredicateObject {
-                            predicate: Box::new(Variable("y")),
-                            object: Box::new(TriplePattern {
-                                subject: Box::new(SparqlValue::BNode(BlankNode::Unlabeled)),
+                            predicate: a_box!(Variable("y")),
+                            object: a_box!(TriplePattern {
+                                subject: a_box!(SparqlValue::BNode(BlankNode::Unlabeled)),
                                 predicate_objects: vec![PredicateObject {
-                                    predicate: Box::new(Variable("x")),
-                                    object: Box::new(Variable("z"))
+                                    predicate: a_box!(Variable("x")),
+                                    object: a_box!(Variable("z"))
                                 },]
                             })
                         },
                     ]
                 },
                 Block(vec![TriplePattern {
-                    subject: Box::new(Variable("v")),
+                    subject: a_box!(Variable("v")),
                     predicate_objects: vec![PredicateObject {
-                        predicate: Box::new(Variable("w")),
-                        object: Box::new(Variable("z"))
+                        predicate: a_box!(Variable("w")),
+                        object: a_box!(Variable("z"))
                     },]
                 }])
             ]),
@@ -374,12 +380,12 @@ mod test {
         let (_, gp) = graph_pattern(s).unwrap();
         assert_eq!(
             GraphPattern {
-                graph: Box::new(Variable("g")),
-                block: Box::new(Block(vec![TriplePattern {
-                    subject: Box::new(Variable("s")),
+                graph: a_box!(Variable("g")),
+                block: a_box!(Block(vec![TriplePattern {
+                    subject: a_box!(Variable("s")),
                     predicate_objects: vec![PredicateObject {
-                        predicate: Box::new(SparqlValue::Path(Iri(Enclosed(NS_TYPE)))),
-                        object: Box::new(SparqlValue::Path(Iri(Enclosed("http://whatsup.com/X"))))
+                        predicate: a_box!(SparqlValue::Path(Iri(Enclosed(NS_TYPE)))),
+                        object: a_box!(SparqlValue::Path(Iri(Enclosed("http://whatsup.com/X"))))
                     }]
                 }]))
             },
@@ -395,12 +401,12 @@ mod test {
         let (_, gp) = graph_pattern(s).unwrap();
         assert_eq!(
             GraphPattern {
-                graph: Box::new(SparqlValue::Path(Iri(Enclosed("http://ggg.com")))),
-                block: Box::new(Block(vec![TriplePattern {
-                    subject: Box::new(Variable("s")),
+                graph: a_box!(SparqlValue::Path(Iri(Enclosed("http://ggg.com")))),
+                block: a_box!(Block(vec![TriplePattern {
+                    subject: a_box!(Variable("s")),
                     predicate_objects: vec![PredicateObject {
-                        predicate: Box::new(Variable("p")),
-                        object: Box::new(Variable("o"))
+                        predicate: a_box!(Variable("p")),
+                        object: a_box!(Variable("o"))
                     }]
                 }]))
             },
@@ -429,7 +435,7 @@ mod test {
         let s = "rdfs:subClassOf*";
         let (_, path) = path::arbitrary_length(s).unwrap();
         assert_eq!(
-            Path::ZeroOrMore(Box::new(Iri(Prefixed {
+            Path::ZeroOrMore(a_box!(Iri(Prefixed {
                 prefix: "rdfs",
                 local_name: "subClassOf"
             }))),
@@ -438,7 +444,7 @@ mod test {
         let s = "rdfs:subClassOf+";
         let (_, path) = path::arbitrary_length(s).unwrap();
         assert_eq!(
-            Path::OneOrMore(Box::new(Iri(Prefixed {
+            Path::OneOrMore(a_box!(Iri(Prefixed {
                 prefix: "rdfs",
                 local_name: "subClassOf"
             }))),
@@ -450,7 +456,7 @@ mod test {
         let s = "!rdfs:subClassOf*";
         let (_, path) = path::negate(s).unwrap();
         assert_eq!(
-            Path::Negate(Box::new(Path::ZeroOrMore(Box::new(Iri(Prefixed {
+            Path::Negate(a_box!(Path::ZeroOrMore(a_box!(Iri(Prefixed {
                 prefix: "rdfs",
                 local_name: "subClassOf"
             }))))),
@@ -459,7 +465,7 @@ mod test {
         let s = "!(rdfs:subClassOf+)";
         let (_, path) = path::negate(s).unwrap();
         assert_eq!(
-            Path::Negate(Box::new(Path::Group(Box::new(Path::OneOrMore(Box::new(
+            Path::Negate(a_box!(Path::Group(a_box!(Path::OneOrMore(a_box!(
                 Iri(Prefixed {
                     prefix: "rdfs",
                     local_name: "subClassOf"
@@ -473,18 +479,18 @@ mod test {
         let s = "!(rdf:type|^rdf:type)+";
         let (_, path) = path::negate(s).unwrap();
         assert_eq!(
-            Negate(Box::new(Group(Box::new(OneOrMore(Box::new(
+            Negate(a_box!(Group(a_box!(OneOrMore(a_box!(
                 Alternative {
-                    elt1: Box::new(Iri(Prefixed {
+                    elt1: a_box!(Iri(Prefixed {
                         prefix: "rdf",
                         local_name: "type",
                     },)),
-                    elt2: Box::new(Inverse(Prefixed {
+                    elt2: a_box!(Inverse(Prefixed {
                         prefix: "rdf",
                         local_name: "type",
-                    },),)
+                    },))
                 }
-            ),))),)),
+            ),))))),
             path
         );
     }
@@ -494,11 +500,11 @@ mod test {
         let (_, path) = path::alternative(s).unwrap();
         assert_eq!(
             Alternative {
-                elt1: Box::new(Iri(Prefixed {
+                elt1: a_box!(Iri(Prefixed {
                     prefix: "dc",
                     local_name: "title",
                 })),
-                elt2: Box::new(Iri(Prefixed {
+                elt2: a_box!(Iri(Prefixed {
                     prefix: "rdfs",
                     local_name: "label",
                 }))
@@ -510,11 +516,11 @@ mod test {
         let (_, path) = path::alternative(s).unwrap();
         assert_eq!(
             Alternative {
-                elt1: Box::new(Iri(Prefixed {
+                elt1: a_box!(Iri(Prefixed {
                     prefix: "dc",
                     local_name: "title",
                 })),
-                elt2: Box::new(Path::Inverse(Enclosed("http://rdfs.com/label")))
+                elt2: a_box!(Path::Inverse(Enclosed("http://rdfs.com/label")))
             },
             path
         );
@@ -526,7 +532,7 @@ mod test {
         let (_, path) = path::sequence(s).unwrap();
         assert_eq!(
             Sequence(vec![
-                OneOrMore(Box::new(Iri(Prefixed {
+                OneOrMore(a_box!(Iri(Prefixed {
                     prefix: "foaf",
                     local_name: "knows",
                 }))),
