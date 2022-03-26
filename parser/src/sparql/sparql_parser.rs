@@ -50,7 +50,53 @@ pub enum Path<'a> {
         elt2: Box<Path<'a>>,
     },
 }
-
+#[derive(Debug, PartialEq)]
+pub enum ArithmeticOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+#[derive(Debug, PartialEq)]
+pub enum RelationalOperator {
+    Equals,
+    Diff,
+    Lower,
+    Greater,
+    LowerOrEqual,
+    GreaterOrEqual,
+    In,
+    NotIn,
+}
+#[derive(Debug, PartialEq)]
+pub enum Expr<'a> {
+    Bracketed(Box<Expr<'a>>),
+    ConditionalOr {
+        left: Box<Expr<'a>>,
+        right: Box<Expr<'a>>,
+    },
+    ConditionalAnd {
+        left: Box<Expr<'a>>,
+        right: Box<Expr<'a>>,
+    },
+    Relational {
+        left: Box<Expr<'a>>,
+        operator: RelationalOperator,
+        right: Box<Expr<'a>>,
+    },
+    List(VecDeque<Expr<'a>>),
+    Numeric(Box<Expr<'a>>),
+    Arithmetic {
+        left: Box<Expr<'a>>,
+        operator: ArithmeticOperator,
+        right: Box<Expr<'a>>,
+    },
+    Primary(Box<Expr<'a>>),
+    BuiltInCall, // TODO
+    Literal(Literal<'a>),
+    Path(Path<'a>),
+    Variable(&'a str),
+}
 mod path {
     use crate::prelude::*;
     use crate::sparql::sparql_parser::Path;
@@ -116,6 +162,8 @@ mod path {
         )(s)
     }
 }
+
+mod expression {}
 
 fn variable(s: &str) -> ParserResult<SparqlValue> {
     map(
@@ -264,7 +312,7 @@ mod test {
     macro_rules! a_box {
         ($a:expr) => {
             Box::new($a)
-        }
+        };
     }
 
     #[test]
@@ -465,12 +513,12 @@ mod test {
         let s = "!(rdfs:subClassOf+)";
         let (_, path) = path::negate(s).unwrap();
         assert_eq!(
-            Path::Negate(a_box!(Path::Group(a_box!(Path::OneOrMore(a_box!(
-                Iri(Prefixed {
+            Path::Negate(a_box!(Path::Group(a_box!(Path::OneOrMore(a_box!(Iri(
+                Prefixed {
                     prefix: "rdfs",
                     local_name: "subClassOf"
-                })
-            )))))),
+                }
+            ))))))),
             path
         );
     }
@@ -479,18 +527,16 @@ mod test {
         let s = "!(rdf:type|^rdf:type)+";
         let (_, path) = path::negate(s).unwrap();
         assert_eq!(
-            Negate(a_box!(Group(a_box!(OneOrMore(a_box!(
-                Alternative {
-                    elt1: a_box!(Iri(Prefixed {
-                        prefix: "rdf",
-                        local_name: "type",
-                    },)),
-                    elt2: a_box!(Inverse(Prefixed {
-                        prefix: "rdf",
-                        local_name: "type",
-                    },))
-                }
-            ),))))),
+            Negate(a_box!(Group(a_box!(OneOrMore(a_box!(Alternative {
+                elt1: a_box!(Iri(Prefixed {
+                    prefix: "rdf",
+                    local_name: "type",
+                },)),
+                elt2: a_box!(Inverse(Prefixed {
+                    prefix: "rdf",
+                    local_name: "type",
+                },))
+            }),))))),
             path
         );
     }
