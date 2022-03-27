@@ -1,5 +1,6 @@
 use crate::prelude::{
-    char, delimited, line_ending, many0, multispace0, preceded, take_until, ParserResult,
+    char, delimited, line_ending, many0, multispace0, preceded, take_till1, take_until,
+    ParserResult,
 };
 pub const BASE_TURTLE: &str = "@base";
 pub const BASE_SPARQL: &str = "BASE";
@@ -60,6 +61,7 @@ pub(crate) mod iri {
         preceded(multispace0, enclosed)(s)
     }
 }
+
 pub(crate) mod prologue {
     use super::iri::enclosed_iri;
     use crate::prelude::*;
@@ -348,4 +350,11 @@ pub(crate) fn comments(s: &str) -> ParserResult<Vec<&str>> {
         preceded(char('#'), take_until("\n")),
         line_ending,
     ))(s)
+}
+pub(crate) fn no_white_space(s: &str) -> ParserResult<&str> {
+    delimited(
+        multispace0,
+        take_till1(|s: char| s.is_whitespace()),
+        multispace0,
+    )(s)
 }
