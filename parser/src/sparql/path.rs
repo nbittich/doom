@@ -1,4 +1,3 @@
-
 use crate::prelude::*;
 use crate::triple_common_parser::iri::iri as common_iri;
 use crate::triple_common_parser::Iri;
