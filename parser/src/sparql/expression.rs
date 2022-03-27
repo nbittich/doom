@@ -189,7 +189,7 @@ fn relational<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
     ))(s)
 }
 fn additive(s: &str) -> ParserResult<Expr> {
-    alt((literal, variable))(s)
+    alt((bracketed, literal, variable))(s)
 }
 fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
     fn make_rel<'a>(op: ArithmeticOperator) -> impl Fn((Expr<'a>, Expr<'a>)) -> Expr<'a> {
