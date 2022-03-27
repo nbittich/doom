@@ -122,11 +122,11 @@ fn blank_node(s: &str) -> ParserResult<SparqlValue> {
 }
 
 fn anon_bnode_sparql(s: &str) -> ParserResult<SparqlValue> {
-    fn anon_bnode_parser(s: &str) -> ParserResult<SparqlValue> {
+    let anon_parser = |s| {
         let unlabeled_subject = |s| Ok((s, SparqlValue::BNode(BlankNode::Unlabeled)));
         alt((predicate_lists(unlabeled_subject), unlabeled_subject))(s)
-    }
-    anon_bnode(anon_bnode_parser)(s)
+    };
+    anon_bnode(anon_parser)(s)
 }
 
 fn object_lists(s: &str) -> ParserResult<SparqlValue> {

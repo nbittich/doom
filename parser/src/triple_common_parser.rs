@@ -314,16 +314,14 @@ pub(crate) mod triple {
             Ok((remaining, VecDeque::from(res)))
         }
     }
-    pub(crate) fn anon_bnode<'a, F, T>(
-        anon_bnode_parser: F,
-    ) -> impl Fn(&'a str) -> ParserResult<'a, T>
+    pub(crate) fn anon_bnode<'a, F, T>(anon_parser: F) -> impl Fn(&'a str) -> ParserResult<'a, T>
     where
         F: Fn(&'a str) -> ParserResult<'a, T> + Copy,
     {
         move |s| {
             let extract = preceded(
                 char('['),
-                terminated(anon_bnode_parser, preceded(multispace0, cut(char(']')))),
+                terminated(anon_parser, preceded(multispace0, cut(char(']')))),
             );
             preceded(multispace0, extract)(s)
         }

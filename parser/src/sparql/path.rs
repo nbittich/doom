@@ -28,9 +28,7 @@ pub(super) fn path(s: &str) -> ParserResult<Path> {
 }
 
 pub(super) fn group(s: &str) -> ParserResult<Path> {
-    fn group_fn(s: &str) -> ParserResult<Path> {
-        delimited(char('('), alt((alternative, sequence, path)), char(')'))(s)
-    }
+    let group_fn = |s| delimited(char('('), alt((alternative, sequence, path)), char(')'))(s);
     map(
         alt((
             map(terminated(group_fn, char('+')), |p| {
