@@ -17,7 +17,7 @@ pub enum SparqlValue<'a> {
     BNode(BlankNode<'a>),
     Collection(VecDeque<SparqlValue<'a>>),
     Base(Iri<'a>),
-    Expr(Iri<'a>),
+    Filter(Expr<'a>),
     Literal(Literal<'a>),
     Prefix((&'a str, Iri<'a>)),
     Path(Path<'a>),
@@ -69,6 +69,62 @@ pub enum RelationalOperator {
     In,
     NotIn,
 }
+#[derive(Debug, PartialEq, Clone)]
+pub enum BuiltInCallType {
+    // Aggregate
+    Str,
+    Lang,
+    LangMatches,
+    DataType,
+    Bound,
+    Iri,
+    BNode,
+    Rand,
+    Abs,
+    Ceil,
+    Floor,
+    Concat,
+    // Substring
+    StrLen,
+    // StrReplace
+    UCase,
+    LCase,
+    EncodeForUri,
+    Contains,
+    StrStarts,
+    StrEnds,
+    StrBefore,
+    StrAfter,
+    Year,
+    Month,
+    Day,
+    Hours,
+    Minutes,
+    Seconds,
+    Timezone,
+    TZ,
+    Now,
+    Uuid,
+    StrUuid,
+    MD5,
+    Sha1,
+    Sha256,
+    Sha384,
+    Sha512,
+    Coalesce,
+    If,
+    StrLang,
+    StrDt,
+    SameTerm,
+    IsIri, // == IsUri
+    IsBlank,
+    IsLiteral,
+    IsNumeric,
+    Regex,
+    Exists,
+    NotExists
+
+}
 #[derive(Debug, PartialEq)]
 pub enum Expr<'a> {
     Bracketed(Box<Expr<'a>>),
@@ -91,7 +147,10 @@ pub enum Expr<'a> {
         operator: ArithmeticOperator,
         right: Box<Expr<'a>>,
     },
-    BuiltInCall, // TODO
+    BuiltInCall {
+        expr: Option<Box<Expr<'a>>>,
+        call_type: BuiltInCallType
+    },
     Literal(Literal<'a>),
     Path(Path<'a>),
     Variable(&'a str),
