@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::sparql::common::var;
+use crate::sparql::common::{tag_no_case_no_space, tag_no_space, var};
 use crate::sparql::path::{path as common_path, Path};
 use crate::triple_common_parser::literal::literal as common_literal;
 use crate::triple_common_parser::Literal;
@@ -24,24 +24,30 @@ pub enum RelationalOperator {
     In,
     NotIn,
 }
-#[derive(Debug, PartialEq, Clone)]
-pub enum BuiltInCallType {
-    // Aggregate
-    Str,
-    Lang,
-    LangMatches,
-    DataType,
-    Bound,
-    Iri,
-    BNode,
+#[derive(Debug, PartialEq)]
+pub enum BuiltInCall<'a> {
+    Count,
+    Sum,
+    Min,
+    Max,
+    Avg,
+    Sample,
+    GroupConcat,
+    Str(Expr<'a>),
+    Lang(Expr<'a>),
+    LangMatches { left: Expr<'a>, right: Expr<'a> },
+    DataType(Expr<'a>),
+    Bound(Expr<'a>),
+    Iri(Expr<'a>),
+    BNode(Option<Expr<'a>>),
     Rand,
     Abs,
     Ceil,
     Floor,
     Concat,
-    // Substring
+    SubStr,
     StrLen,
-    // StrReplace
+    Replace,
     UCase,
     LCase,
     EncodeForUri,
@@ -101,10 +107,7 @@ pub enum Expr<'a> {
         operator: ArithmeticOperator,
         right: Box<Expr<'a>>,
     },
-    BuiltInCall {
-        expr: Option<Box<Expr<'a>>>,
-        call_type: BuiltInCallType,
-    },
+    BuiltInCall(Box<BuiltInCall<'a>>),
     Literal(Literal<'a>),
     Path(Path<'a>),
     Variable(&'a str),
@@ -150,9 +153,6 @@ fn relational<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
             right: Box::new(right),
         }
     }
-    let tag_no_space = |s| delimited(multispace0, tag(s), multispace0);
-    let tag_no_case_no_space = |s| delimited(multispace0, tag_no_case(s), multispace0);
-
     alt((
         map(
             pair_expr(tag_no_space("<="), additive, additive),
@@ -199,7 +199,6 @@ fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
             right: Box::new(right),
         }
     }
-    let tag_no_space = |s| delimited(multispace0, tag(s), multispace0);
 
     alt((
         map(
@@ -249,6 +248,107 @@ fn path(s: &str) -> ParserResult<Expr> {
 fn variable(s: &str) -> ParserResult<Expr> {
     map(var, Expr::Variable)(s)
 }
+
+mod built_in_call {
+    use crate::prelude::*;
+    use crate::sparql::common::{tag_no_case_no_space, tag_no_space};
+    use crate::sparql::expression::{expr, literal, path, variable, BuiltInCall, Expr};
+
+    fn parameterized_func<'a, T, E, F, F2>(
+        func_name: &'a str,
+        expr_parser: F2,
+        mapper: F,
+    ) -> impl FnMut(&'a str) -> ParserResult<E>
+    where
+        F: FnMut(T) -> E + Copy,
+        F2: FnMut(&'a str) -> ParserResult<T> + Copy,
+    {
+        move |s| {
+            map(
+                preceded(
+                    tag_no_case_no_space(func_name),
+                    delimited(tag_no_space("("), expr_parser, tag_no_space(")")),
+                ),
+                mapper,
+            )(s)
+        }
+    }
+    fn single_parameter_func<'a, T, E, F, F2>(
+        func_name: &'a str,
+        expr_parser: F2,
+        mapper: F,
+    ) -> impl FnMut(&'a str) -> ParserResult<E>
+    where
+        F: FnMut(T) -> E + Copy,
+        F2: FnMut(&'a str) -> ParserResult<T> + Copy,
+    {
+        move |s| parameterized_func(func_name, expr_parser, mapper)(s)
+    }
+    fn two_parameter_func<'a, F, F2, F3>(
+        func_name: &'a str,
+        left_param_parser: F2,
+        right_param_parser: F3,
+        mapper: F,
+    ) -> impl FnMut(&'a str) -> ParserResult<Expr<'a>>
+    where
+        F: FnMut((Expr<'a>, Expr<'a>)) -> Expr<'a> + Copy,
+        F2: FnMut(&'a str) -> ParserResult<Expr<'a>> + Copy,
+        F3: FnMut(&'a str) -> ParserResult<Expr<'a>> + Copy,
+    {
+        move |s: &'a str| {
+            let separate_expr =
+                |s| separated_pair(left_param_parser, tag_no_space(","), right_param_parser)(s);
+            parameterized_func(func_name, separate_expr, mapper)(s)
+        }
+    }
+    fn str(s: &str) -> ParserResult<Expr> {
+        single_parameter_func("STR", expr, |exp| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::Str(exp)))
+        })(s)
+    }
+    fn lang(s: &str) -> ParserResult<Expr> {
+        single_parameter_func("LANG", expr, |exp| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::Lang(exp)))
+        })(s)
+    }
+    fn data_type(s: &str) -> ParserResult<Expr> {
+        single_parameter_func("DATATYPE", expr, |exp| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::DataType(exp)))
+        })(s)
+    }
+    fn bound(s: &str) -> ParserResult<Expr> {
+        single_parameter_func("BOUND", variable, |exp| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::Bound(exp)))
+        })(s)
+    }
+    fn iri(s: &str) -> ParserResult<Expr> {
+        single_parameter_func("IRI", expr, |exp| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::Iri(exp)))
+        })(s)
+    }
+    fn uri(s: &str) -> ParserResult<Expr> {
+        single_parameter_func("URI", expr, |exp| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::Iri(exp)))
+        })(s)
+    }
+    fn b_node(s: &str) -> ParserResult<Expr> {
+        let op = |s| opt(alt((literal, path)))(s);
+        single_parameter_func("BNODE", op, |exp| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::BNode(exp)))
+        })(s)
+    }
+    fn rand(s: &str) -> ParserResult<Expr> {
+        single_parameter_func("RAND", space0, |_| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::Rand))
+        })(s)
+    }
+    fn lang_matches(s: &str) -> ParserResult<Expr> {
+        two_parameter_func("LANGMATCHES", expr, expr, |(left, right)| {
+            Expr::BuiltInCall(Box::new(BuiltInCall::LangMatches { left, right }))
+        })(s)
+    }
+}
+
 pub(crate) fn expr(s: &str) -> ParserResult<Expr> {
     alt((
         bracketed,
