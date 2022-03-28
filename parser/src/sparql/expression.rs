@@ -41,38 +41,38 @@ pub enum BuiltInCall<'a> {
     Iri(Expr<'a>),
     BNode(Option<Expr<'a>>),
     Rand,
-    Abs,
-    Ceil,
-    Floor,
-    Concat,
+    Abs(Expr<'a>),
+    Ceil(Expr<'a>),
+    Floor(Expr<'a>),
+    Concat(Expr<'a>),
     SubStr,
-    StrLen,
+    StrLen(Expr<'a>),
     Replace,
-    UCase,
-    LCase,
-    EncodeForUri,
-    Contains,
-    StrStarts,
-    StrEnds,
-    StrBefore,
-    StrAfter,
-    Year,
-    Month,
-    Day,
-    Hours,
-    Minutes,
-    Seconds,
-    Timezone,
-    TZ,
+    UCase(Expr<'a>),
+    LCase(Expr<'a>),
+    EncodeForUri(Expr<'a>),
+    Contains { left: Expr<'a>, right: Expr<'a> },
+    StrStarts { left: Expr<'a>, right: Expr<'a> },
+    StrEnds { left: Expr<'a>, right: Expr<'a> },
+    StrBefore { left: Expr<'a>, right: Expr<'a> },
+    StrAfter { left: Expr<'a>, right: Expr<'a> },
+    Year(Expr<'a>),
+    Month(Expr<'a>),
+    Day(Expr<'a>),
+    Hours(Expr<'a>),
+    Minutes(Expr<'a>),
+    Seconds(Expr<'a>),
+    Timezone(Expr<'a>),
+    Tz(Expr<'a>),
     Now,
     Uuid,
     StrUuid,
-    MD5,
-    Sha1,
-    Sha256,
-    Sha384,
-    Sha512,
-    Coalesce,
+    MD5(Expr<'a>),
+    Sha1(Expr<'a>),
+    Sha256(Expr<'a>),
+    Sha384(Expr<'a>),
+    Sha512(Expr<'a>),
+    Coalesce(Expr<'a>),
     If,
     StrLang,
     StrDt,
@@ -133,7 +133,7 @@ fn bracketed(s: &str) -> ParserResult<Expr> {
         }),
     )(s)
 }
-fn list(s: &str) -> ParserResult<Expr> {
+pub(super) fn list(s: &str) -> ParserResult<Expr> {
     preceded(
         char('('),
         terminated(
@@ -188,7 +188,7 @@ fn relational<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
         ),
     ))(s)
 }
-fn additive(s: &str) -> ParserResult<Expr> {
+pub(super) fn additive(s: &str) -> ParserResult<Expr> {
     alt((bracketed, literal, variable))(s)
 }
 fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
@@ -239,114 +239,14 @@ fn conditional(s: &str) -> ParserResult<Expr> {
         ),
     ))(s)
 }
-fn literal(s: &str) -> ParserResult<Expr> {
+pub(super) fn literal(s: &str) -> ParserResult<Expr> {
     map(common_literal, Expr::Literal)(s)
 }
-fn path(s: &str) -> ParserResult<Expr> {
+pub(super) fn path(s: &str) -> ParserResult<Expr> {
     map(common_path, Expr::Path)(s)
 }
-fn variable(s: &str) -> ParserResult<Expr> {
+pub(super) fn variable(s: &str) -> ParserResult<Expr> {
     map(var, Expr::Variable)(s)
-}
-
-mod built_in_call {
-    use crate::prelude::*;
-    use crate::sparql::common::{tag_no_case_no_space, tag_no_space};
-    use crate::sparql::expression::{expr, literal, path, variable, BuiltInCall, Expr};
-
-    fn parameterized_func<'a, T, E, F, F2>(
-        func_name: &'a str,
-        expr_parser: F2,
-        mapper: F,
-    ) -> impl FnMut(&'a str) -> ParserResult<E>
-    where
-        F: FnMut(T) -> E + Copy,
-        F2: FnMut(&'a str) -> ParserResult<T> + Copy,
-    {
-        move |s| {
-            map(
-                preceded(
-                    tag_no_case_no_space(func_name),
-                    delimited(tag_no_space("("), expr_parser, tag_no_space(")")),
-                ),
-                mapper,
-            )(s)
-        }
-    }
-    fn single_parameter_func<'a, T, E, F, F2>(
-        func_name: &'a str,
-        expr_parser: F2,
-        mapper: F,
-    ) -> impl FnMut(&'a str) -> ParserResult<E>
-    where
-        F: FnMut(T) -> E + Copy,
-        F2: FnMut(&'a str) -> ParserResult<T> + Copy,
-    {
-        move |s| parameterized_func(func_name, expr_parser, mapper)(s)
-    }
-    fn two_parameter_func<'a, F, F2, F3>(
-        func_name: &'a str,
-        left_param_parser: F2,
-        right_param_parser: F3,
-        mapper: F,
-    ) -> impl FnMut(&'a str) -> ParserResult<Expr<'a>>
-    where
-        F: FnMut((Expr<'a>, Expr<'a>)) -> Expr<'a> + Copy,
-        F2: FnMut(&'a str) -> ParserResult<Expr<'a>> + Copy,
-        F3: FnMut(&'a str) -> ParserResult<Expr<'a>> + Copy,
-    {
-        move |s: &'a str| {
-            let separate_expr =
-                |s| separated_pair(left_param_parser, tag_no_space(","), right_param_parser)(s);
-            parameterized_func(func_name, separate_expr, mapper)(s)
-        }
-    }
-    fn str(s: &str) -> ParserResult<Expr> {
-        single_parameter_func("STR", expr, |exp| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::Str(exp)))
-        })(s)
-    }
-    fn lang(s: &str) -> ParserResult<Expr> {
-        single_parameter_func("LANG", expr, |exp| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::Lang(exp)))
-        })(s)
-    }
-    fn data_type(s: &str) -> ParserResult<Expr> {
-        single_parameter_func("DATATYPE", expr, |exp| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::DataType(exp)))
-        })(s)
-    }
-    fn bound(s: &str) -> ParserResult<Expr> {
-        single_parameter_func("BOUND", variable, |exp| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::Bound(exp)))
-        })(s)
-    }
-    fn iri(s: &str) -> ParserResult<Expr> {
-        single_parameter_func("IRI", expr, |exp| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::Iri(exp)))
-        })(s)
-    }
-    fn uri(s: &str) -> ParserResult<Expr> {
-        single_parameter_func("URI", expr, |exp| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::Iri(exp)))
-        })(s)
-    }
-    fn b_node(s: &str) -> ParserResult<Expr> {
-        let op = |s| opt(alt((literal, path)))(s);
-        single_parameter_func("BNODE", op, |exp| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::BNode(exp)))
-        })(s)
-    }
-    fn rand(s: &str) -> ParserResult<Expr> {
-        single_parameter_func("RAND", space0, |_| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::Rand))
-        })(s)
-    }
-    fn lang_matches(s: &str) -> ParserResult<Expr> {
-        two_parameter_func("LANGMATCHES", expr, expr, |(left, right)| {
-            Expr::BuiltInCall(Box::new(BuiltInCall::LangMatches { left, right }))
-        })(s)
-    }
 }
 
 pub(crate) fn expr(s: &str) -> ParserResult<Expr> {
