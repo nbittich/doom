@@ -26,16 +26,12 @@ pub enum RelationalOperator {
 }
 #[derive(Debug, PartialEq)]
 pub enum BuiltInCall<'a> {
-    Count,
-    Sum,
-    Min,
-    Max,
-    Avg,
-    Sample,
-    GroupConcat,
     Str(Expr<'a>),
     Lang(Expr<'a>),
-    LangMatches { left: Expr<'a>, right: Expr<'a> },
+    LangMatches {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
     DataType(Expr<'a>),
     Bound(Expr<'a>),
     Iri(Expr<'a>),
@@ -44,6 +40,7 @@ pub enum BuiltInCall<'a> {
     Abs(Expr<'a>),
     Ceil(Expr<'a>),
     Floor(Expr<'a>),
+    Round(Expr<'a>),
     Concat(Expr<'a>),
     SubStr,
     StrLen(Expr<'a>),
@@ -51,11 +48,26 @@ pub enum BuiltInCall<'a> {
     UCase(Expr<'a>),
     LCase(Expr<'a>),
     EncodeForUri(Expr<'a>),
-    Contains { left: Expr<'a>, right: Expr<'a> },
-    StrStarts { left: Expr<'a>, right: Expr<'a> },
-    StrEnds { left: Expr<'a>, right: Expr<'a> },
-    StrBefore { left: Expr<'a>, right: Expr<'a> },
-    StrAfter { left: Expr<'a>, right: Expr<'a> },
+    Contains {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
+    StrStarts {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
+    StrEnds {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
+    StrBefore {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
+    StrAfter {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
     Year(Expr<'a>),
     Month(Expr<'a>),
     Day(Expr<'a>),
@@ -73,17 +85,38 @@ pub enum BuiltInCall<'a> {
     Sha384(Expr<'a>),
     Sha512(Expr<'a>),
     Coalesce(Expr<'a>),
-    If,
-    StrLang,
-    StrDt,
-    SameTerm,
-    IsIri, // == IsUri
-    IsBlank,
-    IsLiteral,
-    IsNumeric,
+    If {
+        first: Expr<'a>,
+        second: Expr<'a>,
+        third: Expr<'a>,
+    },
+    StrLang {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
+    StrDt {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
+    SameTerm {
+        left: Expr<'a>,
+        right: Expr<'a>,
+    },
+    IsIri(Expr<'a>),
+    IsBlank(Expr<'a>),
+    IsLiteral(Expr<'a>),
+    IsNumeric(Expr<'a>),
+    // TODO
     Regex,
     Exists,
     NotExists,
+    Count,
+    Sum,
+    Min,
+    Max,
+    Avg,
+    Sample,
+    GroupConcat,
 }
 #[derive(Debug, PartialEq)]
 pub enum Expr<'a> {

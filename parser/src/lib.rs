@@ -21,7 +21,7 @@ pub mod prelude {
         error::{make_error, Error, ErrorKind},
         multi::{many0, separated_list0, separated_list1},
         number::complete::{double, float, recognize_float},
-        sequence::{delimited, pair, preceded, separated_pair, terminated},
+        sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
         AsChar, IResult, InputIter, ParseTo, Parser,
     };
     pub type ParserResult<'a, T> = IResult<&'a str, T>;

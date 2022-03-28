@@ -333,7 +333,7 @@ impl<'a> TurtleDoc<'a> {
             }
             _ => Err(TurtleDocError {
                 message: "should never happen".into(),
-            }), // todo should be an error - result
+            }),
         }
     }
 }
