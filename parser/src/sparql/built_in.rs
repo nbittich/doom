@@ -1,57 +1,10 @@
 use crate::prelude::*;
-use crate::sparql::common::{tag_no_case_no_space, tag_no_space};
+use crate::sparql::common::{
+    parameterized_func, single_parameter_func, tag_no_case_no_space, tag_no_space,
+    two_parameter_func,
+};
 use crate::sparql::expression::{expr, list, literal, path, variable, BuiltInCall, Expr};
 
-fn parameterized_func<'a, T, E, F, F2>(
-    func_name: &'a str,
-    expr_parser: F2,
-    mapper: F,
-) -> impl FnMut(&'a str) -> ParserResult<E>
-where
-    F: FnMut(T) -> E + Copy,
-    F2: FnMut(&'a str) -> ParserResult<T> + Copy,
-{
-    move |s| {
-        map(
-            preceded(
-                tag_no_case_no_space(func_name),
-                preceded(
-                    tag_no_space("("),
-                    terminated(expr_parser, tag_no_space(")")),
-                ),
-            ),
-            mapper,
-        )(s)
-    }
-}
-fn single_parameter_func<'a, T, E, F, F2>(
-    func_name: &'a str,
-    expr_parser: F2,
-    mapper: F,
-) -> impl FnMut(&'a str) -> ParserResult<E>
-where
-    F: FnMut(T) -> E + Copy,
-    F2: FnMut(&'a str) -> ParserResult<T> + Copy,
-{
-    move |s| parameterized_func(func_name, expr_parser, mapper)(s)
-}
-fn two_parameter_func<'a, F, F2, F3>(
-    func_name: &'a str,
-    left_param_parser: F2,
-    right_param_parser: F3,
-    mapper: F,
-) -> impl FnMut(&'a str) -> ParserResult<Expr<'a>>
-where
-    F: FnMut((Expr<'a>, Expr<'a>)) -> Expr<'a> + Copy,
-    F2: FnMut(&'a str) -> ParserResult<Expr<'a>> + Copy,
-    F3: FnMut(&'a str) -> ParserResult<Expr<'a>> + Copy,
-{
-    move |s: &'a str| {
-        let separate_expr =
-            |s| separated_pair(left_param_parser, tag_no_space(","), right_param_parser)(s);
-        parameterized_func(func_name, separate_expr, mapper)(s)
-    }
-}
 fn str(s: &str) -> ParserResult<Expr> {
     single_parameter_func("STR", expr, |exp| {
         Expr::BuiltInCall(Box::new(BuiltInCall::Str(exp)))

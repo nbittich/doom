@@ -1,9 +1,9 @@
 use crate::prelude::*;
+use crate::sparql::built_in::built_in_call;
 use crate::sparql::common::{tag_no_case_no_space, tag_no_space, var};
 use crate::sparql::path::{path as common_path, Path};
 use crate::triple_common_parser::literal::literal as common_literal;
 use crate::triple_common_parser::Literal;
-use nom::sequence::delimited;
 use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -171,7 +171,7 @@ pub(super) fn list(s: &str) -> ParserResult<Expr> {
         char('('),
         terminated(
             map(
-                separated_list1(char(','), alt((variable, literal, path))),
+                separated_list1(char(','), alt((built_in_call, variable, literal, path))),
                 |list| Expr::List(VecDeque::from(list)),
             ),
             char(')'),
@@ -179,13 +179,13 @@ pub(super) fn list(s: &str) -> ParserResult<Expr> {
     )(s)
 }
 fn relational<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
-    fn make_rel<'a>(op: RelationalOperator) -> impl Fn((Expr<'a>, Expr<'a>)) -> Expr<'a> {
+    let make_rel = |op: RelationalOperator| {
         move |(left, right)| Expr::Relational {
             left: Box::new(left),
             operator: op.clone(),
             right: Box::new(right),
         }
-    }
+    };
     alt((
         map(
             pair_expr(tag_no_space("<="), additive, additive),
@@ -222,7 +222,7 @@ fn relational<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
     ))(s)
 }
 pub(super) fn additive(s: &str) -> ParserResult<Expr> {
-    alt((bracketed, literal, variable))(s)
+    alt((built_in_call, bracketed, literal, path, variable))(s)
 }
 fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
     fn make_rel<'a>(op: ArithmeticOperator) -> impl Fn((Expr<'a>, Expr<'a>)) -> Expr<'a> {
@@ -253,8 +253,6 @@ fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
     ))(s)
 }
 fn conditional(s: &str) -> ParserResult<Expr> {
-    let tag_no_space = |s| delimited(multispace0, tag(s), multispace0);
-
     alt((
         map(
             pair_expr(tag_no_space("||"), relational, relational),
@@ -298,9 +296,13 @@ pub(crate) fn expr(s: &str) -> ParserResult<Expr> {
 mod test {
     use crate::sparql::expression::expr;
     use crate::sparql::expression::ArithmeticOperator::Multiply;
+    use crate::sparql::expression::BuiltInCall::{IsIri, Str};
     use crate::sparql::expression::Expr;
-    use crate::sparql::expression::Expr::{Arithmetic, Bracketed, Relational};
+    use crate::sparql::expression::Expr::{
+        Arithmetic, Bracketed, BuiltInCall, List, Relational, Variable,
+    };
     use crate::sparql::expression::RelationalOperator;
+    use crate::sparql::expression::RelationalOperator::{Diff, Equals, NotIn};
     use crate::sparql::path::Path;
     use crate::triple_common_parser::Iri::Enclosed;
     use crate::triple_common_parser::Literal;
@@ -393,5 +395,45 @@ mod test {
                 ]),))
             }))
         );
+    }
+
+    #[test]
+    fn test_built_in() {
+        let s = "(STR(?s) NOT IN (?s, ?p, ?o))";
+        let (_, exp) = expr(s).unwrap();
+        assert_eq!(
+            Bracketed(a_box!(Relational {
+                left: a_box!(BuiltInCall(a_box!(Str(Variable("s"))))),
+                operator: NotIn,
+                right: a_box!(List(VecDeque::from(vec![
+                    Variable("s",),
+                    Variable("p",),
+                    Variable("o",),
+                ]),)),
+            })),
+            exp
+        );
+        let s = "(STR(?s) = <http://xxx.com/s>)";
+        let (_, exp) = expr(s).unwrap();
+        assert_eq!(
+            Bracketed(a_box!(Relational {
+                left: a_box!(BuiltInCall(a_box!(Str(Variable("s"))))),
+                operator: Equals,
+                right: a_box!(Expr::Path(Path::Iri(Enclosed("http://xxx.com/s")))),
+            })),
+            exp
+        );
+        let s = "isIri(<http://xxx.com/s>) != true";
+        let (_, exp) = expr(s).unwrap();
+        assert_eq!(
+            exp,
+            Relational {
+                left: a_box!(BuiltInCall(a_box!(IsIri(Expr::Path(Path::Iri(Enclosed(
+                    "http://xxx.com/s"
+                ))))))),
+                operator: Diff,
+                right: a_box!(Expr::Literal(Literal::Boolean(true))),
+            }
+        )
     }
 }
