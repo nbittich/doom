@@ -127,9 +127,7 @@ pub(crate) mod literal {
             };
             map(
                 terminated(
-                    map(extractor, |bv: &'a str| {
-                        bv.eq_ignore_ascii_case("true")
-                    }),
+                    map(extractor, |bv: &'a str| bv.eq_ignore_ascii_case("true")),
                     multispace0,
                 ),
                 Literal::Boolean,
@@ -240,20 +238,19 @@ pub(crate) mod triple {
         mut map_list: F2,
     ) -> impl FnMut(&'a str) -> ParserResult<'a, T>
     where
-        F1: FnMut(&'a str) -> ParserResult<'a, T> + Copy,
+        F1: FnMut(&'a str) -> ParserResult<'a, T>,
         F2: FnMut(Vec<T>) -> T,
     {
-        move |s| {
-            let (remaining, mut list) = separated_list1(char(','), object_extractor)(s)?;
-            if list.len() > 1 {
-                Ok((remaining, map_list(list)))
-            } else if let Some(single_value) = list.pop() {
-                Ok((remaining, single_value))
-            } else {
-                let err: Error<&str> = make_error(s, ErrorKind::LengthValue);
-                Err(nom::Err::Error(err))
-            }
-        }
+        map(
+            separated_list1(char(','), object_extractor),
+            move |mut list| {
+                if list.len() > 1 {
+                    map_list(list)
+                } else {
+                    list.pop().unwrap()
+                }
+            },
+        )
     }
     pub(crate) fn ns_type(s: &str) -> ParserResult<Iri> {
         map(terminated(char('a'), multispace1), |_| {
@@ -269,56 +266,59 @@ pub(crate) mod triple {
     ) -> impl FnMut(&'a str) -> ParserResult<'a, T>
     where
         F1: Fn(&'a str) -> ParserResult<'a, T>,
-        F2: Fn(&'a str) -> ParserResult<'a, T> + Copy,
-        F3: Fn(&'a str) -> ParserResult<'a, T> + Copy,
-        F4: Fn((T, T)) -> T + Copy,
+        F2: Fn(&'a str) -> ParserResult<'a, T>,
+        F3: Fn(&'a str) -> ParserResult<'a, T>,
+        F4: Fn((T, T)) -> T,
         F5: Fn(T, Vec<T>) -> T,
     {
-        move |s| {
-            let (remaining, subject) = subject_extractor(s)?;
-
-            let (remaining, list) = preceded(
-                multispace0,
-                separated_list1(
-                    delimited(multispace0, tag(";"), comments),
-                    map(
-                        pair(predicate_extractor, object_list_extractor),
-                        map_predicate_object,
+        map(
+            pair(
+                subject_extractor,
+                preceded(
+                    multispace0,
+                    separated_list1(
+                        delimited(multispace0, tag(";"), comments),
+                        map(
+                            pair(predicate_extractor, object_list_extractor),
+                            map_predicate_object,
+                        ),
                     ),
                 ),
-            )(remaining)?;
-            Ok((remaining, map_statement(subject, list)))
-        }
+            ),
+            move |(subject, list)| map_statement(subject, list),
+        )
     }
     pub(crate) fn collection<'a, T, F>(
         object_extractor: F,
-    ) -> impl Fn(&'a str) -> ParserResult<'a, VecDeque<T>>
+    ) -> impl FnMut(&'a str) -> ParserResult<'a, VecDeque<T>>
     where
-        F: Fn(&'a str) -> ParserResult<'a, T> + Copy,
+        F: Fn(&'a str) -> ParserResult<'a, T>,
     {
-        move |s| {
-            let (remaining, _) = multispace0(s)?;
-            let (remaining, res) = preceded(
-                char('('),
-                terminated(
-                    separated_list0(multispace1, object_extractor),
-                    preceded(multispace0, cut(char(')'))),
+        preceded(
+            multispace0,
+            map(
+                preceded(
+                    char('('),
+                    terminated(
+                        separated_list0(multispace1, object_extractor),
+                        preceded(multispace0, cut(char(')'))),
+                    ),
                 ),
-            )(remaining)?;
-            Ok((remaining, VecDeque::from(res)))
-        }
+                VecDeque::from,
+            ),
+        )
     }
-    pub(crate) fn anon_bnode<'a, F, T>(anon_parser: F) -> impl Fn(&'a str) -> ParserResult<'a, T>
+    pub(crate) fn anon_bnode<'a, F, T>(anon_parser: F) -> impl FnMut(&'a str) -> ParserResult<'a, T>
     where
-        F: Fn(&'a str) -> ParserResult<'a, T> + Copy,
+        F: Fn(&'a str) -> ParserResult<'a, T>,
     {
-        move |s| {
-            let extract = preceded(
+        preceded(
+            multispace0,
+            preceded(
                 char('['),
                 terminated(anon_parser, preceded(multispace0, cut(char(']')))),
-            );
-            preceded(multispace0, extract)(s)
-        }
+            ),
+        )
     }
     pub(crate) fn labeled_bnode(s: &str) -> ParserResult<BlankNode> {
         let mut parse_labeled_bnode = delimited(

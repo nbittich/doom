@@ -18,21 +18,19 @@ pub(super) fn parameterized_func<'a, T, E, F, F2>(
     mapper: F,
 ) -> impl FnMut(&'a str) -> ParserResult<E>
 where
-    F: FnMut(T) -> E + Copy,
-    F2: FnMut(&'a str) -> ParserResult<T> + Copy,
+    F: FnMut(T) -> E,
+    F2: FnMut(&'a str) -> ParserResult<T>,
 {
-    move |s| {
-        map(
+    map(
+        preceded(
+            tag_no_case_no_space(func_name),
             preceded(
-                tag_no_case_no_space(func_name),
-                preceded(
-                    tag_no_space("("),
-                    terminated(expr_parser, tag_no_space(")")),
-                ),
+                tag_no_space("("),
+                terminated(expr_parser, tag_no_space(")")),
             ),
-            mapper,
-        )(s)
-    }
+        ),
+        mapper,
+    )
 }
 pub(super) fn single_parameter_func<'a, T, E, F, F2>(
     func_name: &'a str,
@@ -40,10 +38,10 @@ pub(super) fn single_parameter_func<'a, T, E, F, F2>(
     mapper: F,
 ) -> impl FnMut(&'a str) -> ParserResult<E>
 where
-    F: FnMut(T) -> E + Copy,
-    F2: FnMut(&'a str) -> ParserResult<T> + Copy,
+    F: FnMut(T) -> E,
+    F2: FnMut(&'a str) -> ParserResult<T>,
 {
-    move |s| parameterized_func(func_name, expr_parser, mapper)(s)
+    parameterized_func(func_name, expr_parser, mapper)
 }
 pub(super) fn two_parameter_func<'a, T, F, F2, F3>(
     func_name: &'a str,
@@ -52,13 +50,13 @@ pub(super) fn two_parameter_func<'a, T, F, F2, F3>(
     mapper: F,
 ) -> impl FnMut(&'a str) -> ParserResult<T>
 where
-    F: FnMut((T, T)) -> T + Copy,
-    F2: FnMut(&'a str) -> ParserResult<T> + Copy,
-    F3: FnMut(&'a str) -> ParserResult<T> + Copy,
+    F: FnMut((T, T)) -> T,
+    F2: FnMut(&'a str) -> ParserResult<T>,
+    F3: FnMut(&'a str) -> ParserResult<T>,
 {
-    move |s: &'a str| {
-        let separate_expr =
-            |s| separated_pair(left_param_parser, tag_no_space(","), right_param_parser)(s);
-        parameterized_func(func_name, separate_expr, mapper)(s)
-    }
+    parameterized_func(
+        func_name,
+        separated_pair(left_param_parser, tag_no_space(","), right_param_parser),
+        mapper,
+    )
 }
