@@ -1,9 +1,9 @@
 use crate::prelude::*;
 use crate::shared::RDF_NIL;
-use crate::sparql::common::var;
-use crate::sparql::expression::Expr;
+use crate::sparql::common::{tag_no_case_no_space, tag_no_space, var};
+use crate::sparql::expression::{expr, Expr};
 use crate::sparql::path::{group, iri, negate, path, Path};
-use crate::triple_common_parser::literal::literal;
+use crate::triple_common_parser::literal::literal_sparql as literal;
 use crate::triple_common_parser::prologue::{base_sparql, prefix_sparql};
 use crate::triple_common_parser::triple::{
     anon_bnode, collection, labeled_bnode, ns_type, object_list, predicate_list,
@@ -41,17 +41,33 @@ pub enum SparqlValue<'a> {
 fn variable(s: &str) -> ParserResult<SparqlValue> {
     map(var, SparqlValue::Variable)(s)
 }
+
+fn filter(s: &str) -> ParserResult<SparqlValue> {
+    map(
+        remove_comments(preceded(
+            tag_no_case_no_space("FILTER"),
+            terminated(expr, comments),
+        )),
+        SparqlValue::Filter,
+    )(s)
+}
+
 fn directive(s: &str) -> ParserResult<SparqlValue> {
     alt((
         map(base_sparql, SparqlValue::Base),
         map(prefix_sparql, SparqlValue::Prefix),
     ))(s)
 }
+fn remove_comments<'a, F, E>(f: F) -> impl FnMut(&'a str) -> ParserResult<E>
+where
+    F: FnMut(&'a str) -> ParserResult<E>,
+{
+    preceded(terminated(comments, multispace0), f)
+}
 
 fn graph_pattern(s: &str) -> ParserResult<SparqlValue> {
-    let extract_graph_word = preceded(terminated(comments, multispace0), tag_no_case("graph"));
     preceded(
-        extract_graph_word,
+        remove_comments(tag_no_case_no_space("graph")),
         map(
             pair(alt((variable, map(iri, SparqlValue::Path))), block),
             |(g, b)| SparqlValue::GraphPattern {
@@ -87,23 +103,17 @@ fn subject(s: &str) -> ParserResult<SparqlValue> {
 }
 
 fn triple_pattern(s: &str) -> ParserResult<SparqlValue> {
-    terminated(
-        preceded(
-            comments,
-            terminated(
-                predicate_lists(subject),
-                preceded(multispace0, opt(tag("."))),
-            ),
-        ),
-        comments,
-    )(s)
+    remove_comments(terminated(predicate_lists(subject), opt(tag_no_space("."))))(s)
 }
 
 fn block(s: &str) -> ParserResult<SparqlValue> {
     delimited(
-        preceded(multispace0, tag("{")),
-        map(many0(alt((triple_pattern, block))), SparqlValue::Block),
-        preceded(multispace0, tag("}")),
+        remove_comments(tag_no_space("{")),
+        map(
+            many0(alt((triple_pattern, filter, block))),
+            SparqlValue::Block,
+        ),
+        remove_comments(tag_no_space("}")),
     )(s)
 }
 
@@ -164,6 +174,7 @@ where
 mod test {
 
     use crate::shared::NS_TYPE;
+    use crate::sparql::expression::{BuiltInCall, Expr, RelationalOperator};
     use crate::sparql::path::Path;
     use crate::sparql::sparql_parser::BlankNode;
 
@@ -174,6 +185,7 @@ mod test {
         block, directive, graph_pattern, prologue, variable, SparqlValue,
     };
     use crate::triple_common_parser::Iri::Enclosed;
+    use crate::triple_common_parser::Iri::Prefixed;
     macro_rules! a_box {
         ($a:expr) => {
             Box::new($a)
@@ -323,6 +335,84 @@ mod test {
                         object: a_box!(Variable("o"))
                     }]
                 }]))
+            },
+            gp
+        );
+    }
+    #[test]
+    fn test_graph_filter() {
+        let s = r#"
+        # a comment
+            GRAPH <http://ggg.com>{
+            ?s ?p ?o.
+            # a comment FILTER (?mbox1 = ?mbox2 && ?name1 != ?name2)# a comment
+            FILTER (?mbox1 = ?mbox2 && ?name1 != ?name2)# a comment
+            } # a comment
+        "#;
+        let (_, gp) = graph_pattern(s).unwrap();
+        assert_eq!(
+            gp,
+            GraphPattern {
+                graph: a_box!(SparqlValue::Path(Path::Iri(Enclosed("http://ggg.com",),),)),
+                block: a_box!(Block(vec![
+                    TriplePattern {
+                        subject: a_box!(Variable("s",)),
+                        predicate_objects: vec![PredicateObject {
+                            predicate: a_box!(Variable("p",)),
+                            object: a_box!(Variable("o",)),
+                        },],
+                    },
+                    SparqlValue::Filter(Expr::Bracketed(a_box!(Expr::ConditionalAnd {
+                        left: a_box!(Expr::Relational {
+                            left: a_box!(Expr::Variable("mbox1",)),
+                            operator: RelationalOperator::Equals,
+                            right: a_box!(Expr::Variable("mbox2",)),
+                        }),
+                        right: a_box!(Expr::Relational {
+                            left: a_box!(Expr::Variable("name1",)),
+                            operator: RelationalOperator::Diff,
+                            right: a_box!(Expr::Variable("name2",)),
+                        }),
+                    })),),
+                ],)),
+            }
+        );
+        let s = r#"
+        #comment
+        graph ?g { ?x foaf:name  ?name ;
+        foaf:mbox  ?mbox .
+        # acomment
+         FILTER isLiteral (?mbox)#comment
+          }
+        "#;
+        let (_, gp) = graph_pattern(s).unwrap();
+        assert_eq!(
+            GraphPattern {
+                graph: a_box!(Variable("g",)),
+                block: a_box!(Block(vec![
+                    TriplePattern {
+                        subject: a_box!(Variable("x",)),
+                        predicate_objects: vec![
+                            PredicateObject {
+                                predicate: a_box!(SparqlValue::Path(Path::Iri(Prefixed {
+                                    prefix: "foaf",
+                                    local_name: "name",
+                                },),)),
+                                object: a_box!(Variable("name",)),
+                            },
+                            PredicateObject {
+                                predicate: a_box!(SparqlValue::Path(Path::Iri(Prefixed {
+                                    prefix: "foaf",
+                                    local_name: "mbox",
+                                },),)),
+                                object: a_box!(Variable("mbox",)),
+                            },
+                        ],
+                    },
+                    SparqlValue::Filter(Expr::BuiltInCall(a_box!(BuiltInCall::IsLiteral(
+                        Expr::Variable("mbox",),
+                    )),),),
+                ],)),
             },
             gp
         );

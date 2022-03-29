@@ -2,7 +2,7 @@ use crate::prelude::*;
 use crate::sparql::built_in::built_in_call;
 use crate::sparql::common::{tag_no_case_no_space, tag_no_space, var};
 use crate::sparql::path::{path as common_path, Path};
-use crate::triple_common_parser::literal::literal as common_literal;
+use crate::triple_common_parser::literal::literal_sparql as common_literal;
 use crate::triple_common_parser::Literal;
 use std::collections::VecDeque;
 
@@ -145,18 +145,6 @@ pub enum Expr<'a> {
     Path(Path<'a>),
     Variable(&'a str),
 }
-fn pair_expr<'a, F, F2, F3>(
-    sep: F,
-    left_expr: F2,
-    right_expr: F3,
-) -> impl FnMut(&'a str) -> ParserResult<(Expr<'a>, Expr<'a>)>
-where
-    F: FnMut(&'a str) -> ParserResult<&'a str>,
-    F2: FnMut(&'a str) -> ParserResult<Expr>,
-    F3: FnMut(&'a str) -> ParserResult<Expr>,
-{
-    separated_pair(left_expr, sep, right_expr)
-}
 
 fn bracketed(s: &str) -> ParserResult<Expr> {
     preceded(
@@ -188,35 +176,35 @@ fn relational<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
     };
     alt((
         map(
-            pair_expr(tag_no_space("<="), additive, additive),
+            separated_pair(additive, tag_no_space("<="), additive),
             make_rel(RelationalOperator::LowerOrEqual),
         ),
         map(
-            pair_expr(tag_no_space(">="), additive, additive),
+            separated_pair(additive, tag_no_space(">="), additive),
             make_rel(RelationalOperator::GreaterOrEqual),
         ),
         map(
-            pair_expr(tag_no_space("<"), additive, additive),
+            separated_pair(additive, tag_no_space("<"), additive),
             make_rel(RelationalOperator::Lower),
         ),
         map(
-            pair_expr(tag_no_space(">"), additive, additive),
+            separated_pair(additive, tag_no_space(">"), additive),
             make_rel(RelationalOperator::Greater),
         ),
         map(
-            pair_expr(tag_no_space("!="), additive, additive),
+            separated_pair(additive, tag_no_space("!="), additive),
             make_rel(RelationalOperator::Diff),
         ),
         map(
-            pair_expr(tag_no_space("="), additive, additive),
+            separated_pair(additive, tag_no_space("="), additive),
             make_rel(RelationalOperator::Equals),
         ),
         map(
-            pair_expr(tag_no_case_no_space("NOT IN"), additive, list),
+            separated_pair(additive, tag_no_case_no_space("NOT IN"), list),
             make_rel(RelationalOperator::NotIn),
         ),
         map(
-            pair_expr(tag_no_case_no_space("IN"), additive, list),
+            separated_pair(additive, tag_no_case_no_space("IN"), list),
             make_rel(RelationalOperator::In),
         ),
     ))(s)
@@ -235,19 +223,19 @@ fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
 
     alt((
         map(
-            pair_expr(tag_no_space("+"), additive, additive),
+            separated_pair(additive, tag_no_space("+"), additive),
             make_rel(ArithmeticOperator::Add),
         ),
         map(
-            pair_expr(tag_no_space("-"), additive, additive),
+            separated_pair(additive, tag_no_space("-"), additive),
             make_rel(ArithmeticOperator::Subtract),
         ),
         map(
-            pair_expr(tag_no_space("/"), additive, additive),
+            separated_pair(additive, tag_no_space("/"), additive),
             make_rel(ArithmeticOperator::Divide),
         ),
         map(
-            pair_expr(tag_no_space("*"), additive, additive),
+            separated_pair(additive, tag_no_space("*"), additive),
             make_rel(ArithmeticOperator::Multiply),
         ),
     ))(s)
@@ -255,14 +243,14 @@ fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
 fn conditional(s: &str) -> ParserResult<Expr> {
     alt((
         map(
-            pair_expr(tag_no_space("||"), relational, relational),
+            separated_pair(relational, tag_no_space("||"), relational),
             |(left, right)| Expr::ConditionalOr {
                 left: Box::new(left),
                 right: Box::new(right),
             },
         ),
         map(
-            pair_expr(tag_no_space("&&"), relational, relational),
+            separated_pair(relational, tag_no_space("&&"), relational),
             |(left, right)| Expr::ConditionalAnd {
                 left: Box::new(left),
                 right: Box::new(right),
@@ -286,6 +274,7 @@ pub(crate) fn expr(s: &str) -> ParserResult<Expr> {
         conditional,
         relational,
         arithmetic,
+        built_in_call,
         variable,
         path,
         literal,
@@ -423,7 +412,7 @@ mod test {
             })),
             exp
         );
-        let s = "isIri(<http://xxx.com/s>) != true";
+        let s = "isIri(<http://xxx.com/s>) != TRUE";
         let (_, exp) = expr(s).unwrap();
         assert_eq!(
             exp,

@@ -5,7 +5,7 @@ use crate::prelude::*;
 use crate::shared::RDF_NIL;
 
 use crate::triple_common_parser::iri::iri;
-use crate::triple_common_parser::literal::literal;
+use crate::triple_common_parser::literal::literal_turtle as literal;
 use crate::triple_common_parser::prologue::{
     base_sparql, base_turtle, prefix_sparql, prefix_turtle,
 };

@@ -114,55 +114,45 @@ pub(crate) mod literal {
     use crate::shared::XSD_STRING;
     use crate::triple_common_parser::iri::iri;
     use crate::triple_common_parser::{Iri, Literal};
-
-    pub(crate) fn parse_boolean(s: &str) -> ParserResult<bool> {
-        let (remaining, val) = terminated(
-            map(alt((tag("true"), tag("false"))), |b: &str| {
-                b.parse::<bool>().map_err(|_err| {
-                    let err: Error<&str> = make_error(b, ErrorKind::IsNot);
-                    nom::Err::Error(err)
-                })
-            }),
-            multispace0,
-        )(s)?;
-        let boolean_value = val?;
-        Ok((remaining, boolean_value))
+    pub(crate) fn parse_boolean<'a>(
+        case_sensitive: bool,
+    ) -> impl FnMut(&'a str) -> ParserResult<Literal<'a>> {
+        move |s| {
+            let extractor = |s| {
+                if case_sensitive {
+                    alt((tag("true"), tag("false")))(s)
+                } else {
+                    alt((tag_no_case("true"), tag_no_case("false")))(s)
+                }
+            };
+            map(
+                terminated(
+                    map(extractor, |bv: &'a str| {
+                        bv.eq_ignore_ascii_case("true")
+                    }),
+                    multispace0,
+                ),
+                Literal::Boolean,
+            )(s)
+        }
     }
 
     pub(crate) fn parse_number(s: &str) -> ParserResult<Literal> {
-        fn try_parse_int(s: &str) -> ParserResult<i64> {
-            all_consuming(I64)(s)
-        }
-        fn try_parse_decimal(s: &str) -> ParserResult<f32> {
-            all_consuming(float)(s)
-        }
-        fn try_parse_double(s: &str) -> ParserResult<f64> {
-            all_consuming(double)(s)
-        }
-        let (remaining, num) = recognize_float(s)?;
-        if let Ok((_, n)) = try_parse_int(num) {
-            Ok((remaining, Literal::Integer(n)))
-        } else if let Ok((_, n)) = try_parse_decimal(num) {
-            Ok((remaining, Literal::Decimal(n)))
-        } else if let Ok((_, n)) = try_parse_double(num) {
-            Ok((remaining, Literal::Double(n)))
-        } else {
-            let err: Error<&str> = make_error(s, ErrorKind::IsNot);
-            Err(nom::Err::Error(err))
-        }
+        map_parser(
+            recognize_float,
+            alt((
+                map(all_consuming(I64), Literal::Integer),
+                map(all_consuming(float), Literal::Decimal),
+                map(all_consuming(double), Literal::Double),
+            )),
+        )(s)
     }
 
-    pub(crate) fn primitive_literal(s: &str) -> ParserResult<Literal> {
-        let (no_white_space, _) = multispace0(s)?;
-
-        return if let Ok((remaining, boolean_value)) = parse_boolean(no_white_space) {
-            Ok((remaining, Literal::Boolean(boolean_value)))
-        } else if let Ok((remaining, number_value)) = parse_number(no_white_space) {
-            Ok((remaining, number_value))
-        } else {
-            let err: Error<&str> = make_error(no_white_space, ErrorKind::IsNot);
-            Err(nom::Err::Error(err))
-        };
+    pub(crate) fn primitive_literal_sparql(s: &str) -> ParserResult<Literal> {
+        preceded(multispace0, alt((parse_boolean(false), parse_number)))(s)
+    }
+    pub(crate) fn primitive_literal_turtle(s: &str) -> ParserResult<Literal> {
+        preceded(multispace0, alt((parse_boolean(true), parse_number)))(s)
     }
 
     pub(crate) fn string_literal(s: &str) -> ParserResult<Literal> {
@@ -230,8 +220,12 @@ pub(crate) mod literal {
         }
     }
 
-    pub(crate) fn literal(s: &str) -> ParserResult<Literal> {
-        alt((string_literal, primitive_literal))(s)
+    pub(crate) fn literal_turtle(s: &str) -> ParserResult<Literal> {
+        alt((string_literal, primitive_literal_turtle))(s)
+    }
+
+    pub(crate) fn literal_sparql(s: &str) -> ParserResult<Literal> {
+        alt((string_literal, primitive_literal_sparql))(s)
     }
 }
 pub(crate) mod triple {
