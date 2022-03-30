@@ -336,7 +336,7 @@ mod test {
     use crate::shared::NS_TYPE;
     use crate::sparql::expression::{ArithmeticOperator, BuiltInCall, Expr, RelationalOperator};
     use crate::sparql::path::Path;
-    use crate::sparql::sparql_parser::{bind, from, select_clause, BlankNode};
+    use crate::sparql::sparql_parser::{bind, from, select_clause, solution_modifier, BlankNode};
 
     use crate::sparql::sparql_parser::SparqlValue::{
         Block, GraphPattern, PredicateObject, TriplePattern, Variable,
@@ -709,5 +709,34 @@ mod test {
         let s = "SELECT REDUCED DISTINCT ?name (<http://xx.com> as ?s) ?p ?o";
         let res = select_clause(s);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_solution_modifier() {
+        let s = r#"
+            GROUP BY ?x
+            HAVING(?size > 10)
+            ORDER BY ?x
+            LIMIT 10 OFFSET 5
+        "#;
+        let (_, solution) = solution_modifier(s).unwrap();
+        assert_eq!(
+            solution,
+            SparqlValue::SolutionModifier {
+                group_clause: Some(a_box!(Variable("x",)),),
+                having_clause: Some(a_box!(SparqlValue::Constraint(Expr::Bracketed(a_box!(
+                    Expr::Relational {
+                        left: a_box!(Expr::Variable("size",)),
+                        operator: RelationalOperator::Greater,
+                        right: a_box!(Expr::Literal(Literal::Integer(10,),)),
+                    }
+                ),),)),),
+                order_clause: Some(a_box!(Variable("x",)),),
+                limit_clause: Some(a_box!(SparqlValue::LimitOffsetClause {
+                    limit: Some(10,),
+                    offset: Some(5,),
+                }),),
+            }
+        )
     }
 }
