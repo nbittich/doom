@@ -22,9 +22,9 @@ pub enum SparqlValue<'a> {
         offset: Option<u32>,
     },
     SolutionModifier {
-        group_clause: Option<Box<SparqlValue<'a>>>,
-        having_clause: Option<Box<SparqlValue<'a>>>,
-        order_clause: Option<Box<SparqlValue<'a>>>,
+        group_clause: Option<Vec<SparqlValue<'a>>>,
+        having_clause: Option<Vec<SparqlValue<'a>>>,
+        order_clause: Option<Vec<SparqlValue<'a>>>,
         limit_clause: Option<Box<SparqlValue<'a>>>,
     },
     BuiltInCall(Expr<'a>),
@@ -190,29 +190,29 @@ fn from(s: &str) -> ParserResult<SparqlValue> {
         ),
     )(s)
 }
-fn group_by(s: &str) -> ParserResult<SparqlValue> {
+fn group_by(s: &str) -> ParserResult<Vec<SparqlValue>> {
     preceded(
         tag_no_case_no_space("GROUP BY"),
-        alt((
+        many1(alt((
             map(built_in_call, SparqlValue::BuiltInCall),
             as_exp,
             variable,
-        )),
+        ))),
     )(s)
 }
 fn constraint(s: &str) -> ParserResult<SparqlValue> {
     map(alt((bracketed, built_in_call)), SparqlValue::Constraint)(s) // todo should be just bracketed + built_in_call + function_call
 }
-fn having(s: &str) -> ParserResult<SparqlValue> {
+fn having(s: &str) -> ParserResult<Vec<SparqlValue>> {
     preceded(
         tag_no_case_no_space("HAVING"),
-        alt((constraint, as_exp, variable)),
+        many1(alt((constraint, as_exp, variable))),
     )(s)
 }
-fn order_by(s: &str) -> ParserResult<SparqlValue> {
+fn order_by(s: &str) -> ParserResult<Vec<SparqlValue>> {
     preceded(
         tag_no_case_no_space("ORDER BY"),
-        alt((
+        many1(alt((
             alt((
                 map(
                     preceded(tag_no_case_no_space("ASC"), bracketed),
@@ -225,7 +225,7 @@ fn order_by(s: &str) -> ParserResult<SparqlValue> {
             )),
             constraint,
             variable,
-        )),
+        ))),
     )(s)
 }
 fn limit_clause(s: &str) -> ParserResult<SparqlValue> {
@@ -254,10 +254,10 @@ fn solution_modifier(s: &str) -> ParserResult<SparqlValue> {
     map(
         tuple((opt(group_by), opt(having), opt(order_by), opt(limit_clause))),
         |(gc, h, order, limit)| SparqlValue::SolutionModifier {
-            group_clause: gc.map(Box::new),
-            having_clause: h.map(Box::new),
+            group_clause: gc,
+            having_clause: h,
             limit_clause: limit.map(Box::new),
-            order_clause: order.map(Box::new),
+            order_clause: order,
         },
     )(s)
 }
@@ -714,24 +714,24 @@ mod test {
     #[test]
     fn test_solution_modifier() {
         let s = r#"
-            GROUP BY ?x
+            GROUP BY ?x ?y ?z
             HAVING(?size > 10)
-            ORDER BY ?x
+            ORDER BY ?x ?y
             LIMIT 10 OFFSET 5
         "#;
         let (_, solution) = solution_modifier(s).unwrap();
         assert_eq!(
             solution,
             SparqlValue::SolutionModifier {
-                group_clause: Some(a_box!(Variable("x",)),),
-                having_clause: Some(a_box!(SparqlValue::Constraint(Expr::Bracketed(a_box!(
+                group_clause: Some(vec![Variable("x"), Variable("y"), Variable("z"),],),
+                having_clause: Some(vec![SparqlValue::Constraint(Expr::Bracketed(a_box!(
                     Expr::Relational {
                         left: a_box!(Expr::Variable("size",)),
                         operator: RelationalOperator::Greater,
                         right: a_box!(Expr::Literal(Literal::Integer(10,),)),
                     }
-                ),),)),),
-                order_clause: Some(a_box!(Variable("x",)),),
+                ),),)]),
+                order_clause: Some(vec![Variable("x"), Variable("y"),]),
                 limit_clause: Some(a_box!(SparqlValue::LimitOffsetClause {
                     limit: Some(10,),
                     offset: Some(5,),
