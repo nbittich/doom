@@ -129,6 +129,10 @@ pub enum Expr<'a> {
         left: Box<Expr<'a>>,
         right: Box<Expr<'a>>,
     },
+    AsExpr {
+        expression: Box<Expr<'a>>,
+        variable: Box<Expr<'a>>,
+    },
     Relational {
         left: Box<Expr<'a>>,
         operator: RelationalOperator,
@@ -145,8 +149,22 @@ pub enum Expr<'a> {
     Path(Path<'a>),
     Variable(&'a str),
 }
-
-fn bracketed(s: &str) -> ParserResult<Expr> {
+pub(crate) fn as_expr(s: &str) -> ParserResult<Expr> {
+    preceded(
+        char('('),
+        terminated(
+            map(
+                separated_pair(expr, tag_no_case_no_space("AS"), variable),
+                |(expression, variable)| Expr::AsExpr {
+                    expression: Box::new(expression),
+                    variable: Box::new(variable),
+                },
+            ),
+            char(')'),
+        ),
+    )(s)
+}
+pub(super) fn bracketed(s: &str) -> ParserResult<Expr> {
     preceded(
         char('('),
         map(terminated(expr, char(')')), |ex| {

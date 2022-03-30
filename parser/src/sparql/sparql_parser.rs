@@ -1,23 +1,50 @@
 use crate::prelude::*;
 use crate::shared::RDF_NIL;
+use crate::sparql::built_in::built_in_call;
 use crate::sparql::common::{tag_no_case_no_space, tag_no_space, var};
-use crate::sparql::expression::{expr, Expr};
+use crate::sparql::expression::{as_expr, bracketed, expr, Expr};
 use crate::sparql::path::{group, iri, negate, path, Path};
+use crate::triple_common_parser::iri::enclosed_iri;
 use crate::triple_common_parser::literal::literal_sparql as literal;
 use crate::triple_common_parser::prologue::{base_sparql, prefix_sparql};
 use crate::triple_common_parser::triple::{
     anon_bnode, collection, labeled_bnode, ns_type, object_list, predicate_list,
 };
 use crate::triple_common_parser::{comments, BlankNode, Iri, Literal};
+use nom::multi::many1;
 use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq)]
 pub enum SparqlValue<'a> {
     Variable(&'a str),
+    LimitOffsetClause {
+        limit: Option<u32>,
+        offset: Option<u32>,
+    },
+    SolutionModifier {
+        group_clause: Option<Box<SparqlValue<'a>>>,
+        having_clause: Option<Box<SparqlValue<'a>>>,
+        order_clause: Option<Box<SparqlValue<'a>>>,
+        limit_clause: Option<Box<SparqlValue<'a>>>,
+    },
+    BuiltInCall(Expr<'a>),
+    Constraint(Expr<'a>),
+    Expr(Expr<'a>),
+    Variables(Vec<SparqlValue<'a>>),
+    All,
     BNode(BlankNode<'a>),
     Collection(VecDeque<SparqlValue<'a>>),
     Base(Iri<'a>),
+    As(Expr<'a>),
+    Bind(Box<SparqlValue<'a>>),
+    SelectClause {
+        distinct: bool,
+        reduced: bool,
+        variables: Box<SparqlValue<'a>>,
+    },
     Filter(Expr<'a>),
+    From(Iri<'a>),
+    FromNamed(Iri<'a>),
     Literal(Literal<'a>),
     Prefix((&'a str, Iri<'a>)),
     Path(Path<'a>),
@@ -41,7 +68,6 @@ pub enum SparqlValue<'a> {
 fn variable(s: &str) -> ParserResult<SparqlValue> {
     map(var, SparqlValue::Variable)(s)
 }
-
 fn filter(s: &str) -> ParserResult<SparqlValue> {
     map(
         remove_comments(preceded(
@@ -110,7 +136,7 @@ fn block(s: &str) -> ParserResult<SparqlValue> {
     delimited(
         remove_comments(tag_no_space("{")),
         map(
-            many0(alt((triple_pattern, filter, block))),
+            many0(alt((triple_pattern, filter, bind, block))),
             SparqlValue::Block,
         ),
         remove_comments(tag_no_space("}")),
@@ -149,6 +175,140 @@ fn predicate(s: &str) -> ParserResult<SparqlValue> {
         variable,
     ))(s)
 }
+fn from(s: &str) -> ParserResult<SparqlValue> {
+    preceded(
+        tag_no_case_no_space("FROM"),
+        map(
+            pair(opt(tag_no_case_no_space("NAMED")), enclosed_iri),
+            |(named, iri)| {
+                if named.is_some() {
+                    SparqlValue::FromNamed(iri)
+                } else {
+                    SparqlValue::From(iri)
+                }
+            },
+        ),
+    )(s)
+}
+fn group_by(s: &str) -> ParserResult<SparqlValue> {
+    preceded(
+        tag_no_case_no_space("GROUP BY"),
+        alt((
+            map(built_in_call, SparqlValue::BuiltInCall),
+            as_exp,
+            variable,
+        )),
+    )(s)
+}
+fn constraint(s: &str) -> ParserResult<SparqlValue> {
+    map(alt((bracketed, built_in_call)), SparqlValue::Constraint)(s) // todo should be just bracketed + built_in_call + function_call
+}
+fn having(s: &str) -> ParserResult<SparqlValue> {
+    preceded(
+        tag_no_case_no_space("HAVING"),
+        alt((constraint, as_exp, variable)),
+    )(s)
+}
+fn order_by(s: &str) -> ParserResult<SparqlValue> {
+    preceded(
+        tag_no_case_no_space("ORDER BY"),
+        alt((
+            alt((
+                map(
+                    preceded(tag_no_case_no_space("ASC"), bracketed),
+                    SparqlValue::Expr,
+                ),
+                map(
+                    preceded(tag_no_case_no_space("DESC"), bracketed),
+                    SparqlValue::Expr,
+                ),
+            )),
+            constraint,
+            variable,
+        )),
+    )(s)
+}
+fn limit_clause(s: &str) -> ParserResult<SparqlValue> {
+    let limit_clause = || preceded(tag_no_case_no_space("LIMIT"), U32);
+    let offset_clause = || preceded(tag_no_case_no_space("OFFSET"), U32);
+
+    alt((
+        map(
+            pair(limit_clause(), opt(offset_clause())),
+            |(limit, offset)| SparqlValue::LimitOffsetClause {
+                limit: Some(limit),
+                offset,
+            },
+        ),
+        map(
+            pair(offset_clause(), opt(limit_clause())),
+            |(offset, limit)| SparqlValue::LimitOffsetClause {
+                limit,
+                offset: Some(offset),
+            },
+        ),
+    ))(s)
+}
+
+fn solution_modifier(s: &str) -> ParserResult<SparqlValue> {
+    map(
+        tuple((opt(group_by), opt(having), opt(order_by), opt(limit_clause))),
+        |(gc, h, order, limit)| SparqlValue::SolutionModifier {
+            group_clause: gc.map(Box::new),
+            having_clause: h.map(Box::new),
+            limit_clause: limit.map(Box::new),
+            order_clause: order.map(Box::new),
+        },
+    )(s)
+}
+fn select_clause(s: &str) -> ParserResult<SparqlValue> {
+    preceded(
+        tag_no_case_no_space("SELECT"),
+        map_res(
+            tuple((
+                opt(tag_no_case_no_space("DISTINCT")),
+                opt(tag_no_case_no_space("REDUCED")),
+                variables_or_all,
+            )),
+            |(distinct, reduced, variables)| {
+                if distinct.is_some() && reduced.is_some() {
+                    let err: Error<&str> = make_error(s, ErrorKind::Fail);
+                    Err(nom::Err::Error(err))
+                } else {
+                    Ok(SparqlValue::SelectClause {
+                        distinct: distinct.is_some(),
+                        reduced: reduced.is_some(),
+                        variables: Box::new(variables),
+                    })
+                }
+            },
+        ),
+    )(s)
+}
+fn where_clause(s: &str) -> ParserResult<SparqlValue> {
+    todo!()
+}
+
+fn all(s: &str) -> ParserResult<SparqlValue> {
+    map(tag_no_case_no_space("*"), |_| SparqlValue::All)(s)
+}
+
+fn variables_or_all(s: &str) -> ParserResult<SparqlValue> {
+    alt((
+        all,
+        map(many1(alt((variable, as_exp))), SparqlValue::Variables),
+    ))(s)
+}
+
+fn as_exp(s: &str) -> ParserResult<SparqlValue> {
+    map(as_expr, |expression| SparqlValue::As(expression))(s)
+}
+fn bind(s: &str) -> ParserResult<SparqlValue> {
+    preceded(
+        tag_no_case_no_space("BIND"),
+        map(as_exp, |expression| SparqlValue::Bind(Box::new(expression))),
+    )(s)
+}
 
 fn predicate_lists<'a, F>(subject_extractor: F) -> impl FnMut(&'a str) -> ParserResult<SparqlValue>
 where
@@ -174,9 +334,9 @@ where
 mod test {
 
     use crate::shared::NS_TYPE;
-    use crate::sparql::expression::{BuiltInCall, Expr, RelationalOperator};
+    use crate::sparql::expression::{ArithmeticOperator, BuiltInCall, Expr, RelationalOperator};
     use crate::sparql::path::Path;
-    use crate::sparql::sparql_parser::BlankNode;
+    use crate::sparql::sparql_parser::{bind, from, select_clause, BlankNode};
 
     use crate::sparql::sparql_parser::SparqlValue::{
         Block, GraphPattern, PredicateObject, TriplePattern, Variable,
@@ -186,6 +346,7 @@ mod test {
     };
     use crate::triple_common_parser::Iri::Enclosed;
     use crate::triple_common_parser::Iri::Prefixed;
+    use crate::triple_common_parser::Literal;
     macro_rules! a_box {
         ($a:expr) => {
             Box::new($a)
@@ -416,5 +577,137 @@ mod test {
             },
             gp
         );
+    }
+
+    #[test]
+    fn test_bind() {
+        let s = " BIND (?p*(1-?discount) AS ?price)";
+        let (_, res) = bind(s).unwrap();
+        assert_eq!(
+            res,
+            SparqlValue::Bind(a_box!(SparqlValue::As(Expr::AsExpr {
+                expression: a_box!(Expr::Arithmetic {
+                    left: a_box!(Expr::Variable("p",)),
+                    operator: ArithmeticOperator::Multiply,
+                    right: a_box!(Expr::Bracketed(a_box!(Expr::Arithmetic {
+                        left: a_box!(Expr::Literal(Literal::Integer(1,),)),
+                        operator: ArithmeticOperator::Subtract,
+                        right: a_box!(Expr::Variable("discount",)),
+                    }),)),
+                }),
+                variable: a_box!(Expr::Variable("price",)),
+            })))
+        )
+    }
+
+    #[test]
+    fn test_graph_bind() {
+        let s = r#"
+        # a comment
+            GRAPH <http://ggg.com>{
+            ?s ?p ?o
+            BIND (?p*(1-?discount) AS ?price)
+            # a comment FILTER (?mbox1 = ?mbox2 && ?name1 != ?name2)# a comment
+            FILTER (?mbox1 = ?mbox2 && ?name1 != ?name2)# a comment
+            } # a comment
+        "#;
+        let (_, gp) = graph_pattern(s).unwrap();
+        assert_eq!(
+            gp,
+            GraphPattern {
+                graph: a_box!(SparqlValue::Path(Path::Iri(Enclosed("http://ggg.com",),),)),
+                block: a_box!(Block(vec![
+                    TriplePattern {
+                        subject: a_box!(Variable("s",)),
+                        predicate_objects: vec![PredicateObject {
+                            predicate: a_box!(Variable("p",)),
+                            object: a_box!(Variable("o",)),
+                        },],
+                    },
+                    SparqlValue::Bind(a_box!(SparqlValue::As(Expr::AsExpr {
+                        expression: a_box!(Expr::Arithmetic {
+                            left: a_box!(Expr::Variable("p",)),
+                            operator: ArithmeticOperator::Multiply,
+                            right: a_box!(Expr::Bracketed(a_box!(Expr::Arithmetic {
+                                left: a_box!(Expr::Literal(Literal::Integer(1,),)),
+                                operator: ArithmeticOperator::Subtract,
+                                right: a_box!(Expr::Variable("discount",)),
+                            }),)),
+                        }),
+                        variable: a_box!(Expr::Variable("price",)),
+                    }))),
+                    SparqlValue::Filter(Expr::Bracketed(a_box!(Expr::ConditionalAnd {
+                        left: a_box!(Expr::Relational {
+                            left: a_box!(Expr::Variable("mbox1",)),
+                            operator: RelationalOperator::Equals,
+                            right: a_box!(Expr::Variable("mbox2",)),
+                        }),
+                        right: a_box!(Expr::Relational {
+                            left: a_box!(Expr::Variable("name1",)),
+                            operator: RelationalOperator::Diff,
+                            right: a_box!(Expr::Variable("name2",)),
+                        }),
+                    })),),
+                ],)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_from() {
+        let s = "FROM NAMED <http://example.org/foaf/aliceFoaf>";
+        let (_, named) = from(s).unwrap();
+        assert_eq!(
+            named,
+            SparqlValue::FromNamed(Enclosed("http://example.org/foaf/aliceFoaf"))
+        );
+        let s = "FROM <http://example.org/foaf/aliceFoaf>";
+        let (_, named) = from(s).unwrap();
+        assert_eq!(
+            named,
+            SparqlValue::From(Enclosed("http://example.org/foaf/aliceFoaf"))
+        );
+    }
+    #[test]
+    fn test_select_clause() {
+        let s = "SELECT DISTINCT ?name (<http://xx.com> as ?s) ?p ?o";
+        let (_, clause) = select_clause(s).unwrap();
+        assert_eq!(
+            clause,
+            SparqlValue::SelectClause {
+                distinct: true,
+                reduced: false,
+                variables: a_box!(SparqlValue::Variables(vec![
+                    Variable("name",),
+                    SparqlValue::As(Expr::AsExpr {
+                        expression: a_box!(Expr::Path(Path::Iri(Enclosed("http://xx.com",),),)),
+                        variable: a_box!(Expr::Variable("s",)),
+                    },),
+                    Variable("p",),
+                    Variable("o",),
+                ],)),
+            },
+        );
+        let s = "SELECT REDUCED ?name (<http://xx.com> as ?s) ?p ?o";
+        let (_, clause) = select_clause(s).unwrap();
+        assert_eq!(
+            clause,
+            SparqlValue::SelectClause {
+                distinct: false,
+                reduced: true,
+                variables: a_box!(SparqlValue::Variables(vec![
+                    Variable("name",),
+                    SparqlValue::As(Expr::AsExpr {
+                        expression: a_box!(Expr::Path(Path::Iri(Enclosed("http://xx.com",),),)),
+                        variable: a_box!(Expr::Variable("s",)),
+                    },),
+                    Variable("p",),
+                    Variable("o",),
+                ],)),
+            },
+        );
+        let s = "SELECT REDUCED DISTINCT ?name (<http://xx.com> as ?s) ?p ?o";
+        let res = select_clause(s);
+        assert!(res.is_err());
     }
 }

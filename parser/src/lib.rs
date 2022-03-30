@@ -13,7 +13,7 @@ pub mod prelude {
         character::{
             complete::{
                 alphanumeric1, char, i64 as I64, line_ending, multispace0, multispace1, space0,
-                space1,
+                space1, u32 as U32,
             },
             is_alphanumeric, is_space,
         },
