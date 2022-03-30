@@ -6,14 +6,14 @@ use crate::triple_common_parser::literal::literal_sparql as common_literal;
 use crate::triple_common_parser::Literal;
 use std::collections::VecDeque;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ArithmeticOperator {
     Add,
     Subtract,
     Multiply,
     Divide,
 }
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RelationalOperator {
     Equals,
     Diff,
@@ -170,7 +170,7 @@ fn relational<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
     let make_rel = |op: RelationalOperator| {
         move |(left, right)| Expr::Relational {
             left: Box::new(left),
-            operator: op.clone(),
+            operator: op,
             right: Box::new(right),
         }
     };
@@ -213,13 +213,13 @@ pub(super) fn additive(s: &str) -> ParserResult<Expr> {
     alt((built_in_call, bracketed, literal, path, variable))(s)
 }
 fn arithmetic<'a>(s: &'a str) -> ParserResult<Expr<'a>> {
-    fn make_rel<'a>(op: ArithmeticOperator) -> impl Fn((Expr<'a>, Expr<'a>)) -> Expr<'a> {
+    let make_rel = |op| {
         move |(left, right)| Expr::Arithmetic {
             left: Box::new(left),
-            operator: op.clone(),
+            operator: op,
             right: Box::new(right),
         }
-    }
+    };
 
     alt((
         map(

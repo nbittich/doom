@@ -180,13 +180,15 @@ pub(crate) mod literal {
             preceded(tag(LANGTAG), take_while(|a: char| a.is_alpha() || a == '-'))(s)
         }
 
-        let (no_white_space, _) = multispace0(s)?;
-        let (remaining, string_literal) = alt((
-            single_quote_literal,
-            double_quote_literal,
-            long_quote_literal,
-            long_single_quote_literal,
-        ))(no_white_space)?;
+        let (remaining, string_literal) = preceded(
+            multispace0,
+            alt((
+                single_quote_literal,
+                double_quote_literal,
+                long_quote_literal,
+                long_single_quote_literal,
+            )),
+        )(s)?;
 
         if let Ok((remaining, datatype)) = datatype(remaining) {
             Ok((
@@ -310,7 +312,7 @@ pub(crate) mod triple {
     }
     pub(crate) fn anon_bnode<'a, F, T>(anon_parser: F) -> impl FnMut(&'a str) -> ParserResult<'a, T>
     where
-        F: Fn(&'a str) -> ParserResult<'a, T>,
+        F: FnMut(&'a str) -> ParserResult<'a, T>,
     {
         preceded(
             multispace0,
@@ -321,18 +323,19 @@ pub(crate) mod triple {
         )
     }
     pub(crate) fn labeled_bnode(s: &str) -> ParserResult<BlankNode> {
-        let mut parse_labeled_bnode = delimited(
+        let parse_label = delimited(
             tag(BLANK_NODE_LABEL),
             take_while(|s: char| !s.is_whitespace()),
             space0,
         );
-        let (remaining, _) = multispace0(s)?; // todo maybe remove this
-        let (remaining, label) = parse_labeled_bnode(remaining)?;
-        if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
-            let err: Error<&str> = make_error(label, ErrorKind::IsNot);
-            return Err(nom::Err::Error(err));
-        }
-        Ok((remaining, BlankNode::Labeled(label)))
+
+        map_res(preceded(multispace0, parse_label), |label: &str| {
+            if label.starts_with('.') || label.ends_with('.') || label.starts_with('-') {
+                let err: Error<&str> = make_error(label, ErrorKind::IsNot);
+                return Err(nom::Err::Error(err));
+            }
+            Ok(BlankNode::Labeled(label))
+        })(s)
     }
 }
 pub(crate) fn comments(s: &str) -> ParserResult<Vec<&str>> {

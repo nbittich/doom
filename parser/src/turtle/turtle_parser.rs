@@ -68,11 +68,8 @@ fn collection_turtle(s: &str) -> ParserResult<TurtleValue> {
 }
 
 fn anon_bnode_turtle(s: &str) -> ParserResult<TurtleValue> {
-    fn anon_bnode_parser(s: &str) -> ParserResult<TurtleValue> {
-        let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
-        alt((predicate_lists(unlabeled_subject), unlabeled_subject))(s)
-    }
-    anon_bnode(anon_bnode_parser)(s)
+    let unlabeled_subject = |s| Ok((s, TurtleValue::BNode(BlankNode::Unlabeled)));
+    anon_bnode(alt((predicate_lists(unlabeled_subject), unlabeled_subject)))(s)
 }
 
 fn blank_node(s: &str) -> ParserResult<TurtleValue> {
