@@ -1,22 +1,49 @@
 use crate::prelude::*;
 use crate::shared::RDF_NIL;
 use crate::sparql::built_in::built_in_call;
-use crate::sparql::common::{tag_no_case_no_space, tag_no_space, var};
+use crate::sparql::common::var;
 use crate::sparql::expression::{as_expr, bracketed, expr, Expr};
 use crate::sparql::path::{group, iri, negate, path, Path};
+use crate::sparql::sparql_parser::SparqlValue::Block;
 use crate::triple_common_parser::iri::enclosed_iri;
 use crate::triple_common_parser::literal::literal_sparql as literal;
 use crate::triple_common_parser::prologue::{base_sparql, prefix_sparql};
 use crate::triple_common_parser::triple::{
     anon_bnode, collection, labeled_bnode, ns_type, object_list, predicate_list,
 };
-use crate::triple_common_parser::{comments, BlankNode, Iri, Literal};
+use crate::triple_common_parser::{
+    comments, paren_close, paren_open, tag_no_case_no_space, tag_no_space, BlankNode, Iri, Literal,
+};
 use nom::multi::many1;
 use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq)]
 pub enum SparqlValue<'a> {
     Variable(&'a str),
+    Undef,
+    SubSelect {
+        select_clause: Box<SparqlValue<'a>>,
+        where_clause: Box<SparqlValue<'a>>,
+        solution_modifier: Option<Box<SparqlValue<'a>>>,
+        values_clause: Option<Box<SparqlValue<'a>>>,
+    },
+    Select {
+        select_clause: Box<SparqlValue<'a>>,
+        where_clause: Box<SparqlValue<'a>>,
+        solution_modifier: Option<Box<SparqlValue<'a>>>,
+        dataset_clause: Vec<SparqlValue<'a>>,
+    },
+    DataBlockValue(Box<SparqlValue<'a>>),
+    InlineData(Box<SparqlValue<'a>>),
+    ValuesClause(Box<SparqlValue<'a>>),
+    InlineDataOneVar {
+        variable: Box<SparqlValue<'a>>,
+        data_blocks: Vec<SparqlValue<'a>>,
+    },
+    InlineDataFull {
+        variable: Option<Vec<SparqlValue<'a>>>,
+        blocks: Option<Vec<SparqlValue<'a>>>,
+    },
     LimitOffsetClause {
         limit: Option<u32>,
         offset: Option<u32>,
@@ -285,9 +312,6 @@ fn select_clause(s: &str) -> ParserResult<SparqlValue> {
         ),
     )(s)
 }
-fn where_clause(s: &str) -> ParserResult<SparqlValue> {
-    todo!()
-}
 
 fn all(s: &str) -> ParserResult<SparqlValue> {
     map(tag_no_case_no_space("*"), |_| SparqlValue::All)(s)
@@ -328,6 +352,120 @@ where
             predicate_objects: list,
         },
     )
+}
+
+fn data_block_value(s: &str) -> ParserResult<SparqlValue> {
+    map(
+        alt((
+            map(iri, SparqlValue::Path),
+            map(literal, SparqlValue::Literal),
+            map(tag_no_case_no_space("UNDEF"), |_| SparqlValue::Undef),
+        )),
+        |v| SparqlValue::DataBlockValue(Box::new(v)),
+    )(s)
+}
+fn inline_data_full(s: &str) -> ParserResult<SparqlValue> {
+    map(
+        pair(
+            preceded(
+                paren_open,
+                terminated(
+                    preceded(
+                        opt(paren_open),
+                        terminated(opt(many1(variable)), opt(paren_close)),
+                    ),
+                    paren_close,
+                ),
+            ),
+            preceded(
+                tag_no_space("{"),
+                terminated(
+                    preceded(
+                        paren_open,
+                        terminated(
+                            opt(many1(preceded(
+                                paren_open,
+                                terminated(data_block_value, paren_close),
+                            ))),
+                            paren_close,
+                        ),
+                    ),
+                    tag_no_space("}"),
+                ),
+            ),
+        ),
+        |(v, blocks)| SparqlValue::InlineDataFull {
+            variable: v,
+            blocks,
+        },
+    )(s)
+}
+fn inline_data_one_var(s: &str) -> ParserResult<SparqlValue> {
+    map(
+        pair(
+            variable,
+            preceded(
+                tag_no_space("{"),
+                terminated(many1(data_block_value), tag_no_space("}")),
+            ),
+        ),
+        |(v, db)| SparqlValue::InlineDataOneVar {
+            variable: Box::new(v),
+            data_blocks: db,
+        },
+    )(s)
+}
+
+fn sub_select_clause(s: &str) -> ParserResult<SparqlValue> {
+    map(
+        tuple((
+            select_clause,
+            where_clause,
+            opt(solution_modifier),
+            opt(values_clause),
+        )),
+        |(select, where_c, sm, v_clause)| SparqlValue::SubSelect {
+            select_clause: Box::new(select),
+            values_clause: v_clause.map(Box::new),
+            where_clause: Box::new(where_c),
+            solution_modifier: sm.map(Box::new),
+        },
+    )(s)
+}
+fn select_query(s: &str) -> ParserResult<SparqlValue> {
+    map(
+        tuple((
+            select_clause,
+            many0(from), // dataset clause
+            where_clause,
+            opt(solution_modifier),
+        )),
+        |(select, ds_clause, where_c, sm)| SparqlValue::Select {
+            select_clause: Box::new(select),
+            dataset_clause: ds_clause,
+            where_clause: Box::new(where_c),
+            solution_modifier: sm.map(Box::new),
+        },
+    )(s)
+}
+
+fn data_block(s: &str) -> ParserResult<SparqlValue> {
+    alt((inline_data_one_var, inline_data_full))(s)
+}
+fn inline_data(s: &str) -> ParserResult<SparqlValue> {
+    map(preceded(tag_no_case_no_space("VALUES"), data_block), |b| {
+        SparqlValue::InlineData(Box::new(b))
+    })(s)
+}
+fn values_clause(s: &str) -> ParserResult<SparqlValue> {
+    map(preceded(tag_no_case_no_space("VALUES"), data_block), |b| {
+        SparqlValue::ValuesClause(Box::new(b))
+    })(s)
+}
+
+fn where_clause(s: &str) -> ParserResult<SparqlValue> {
+    //preceded(tag_no_case_no_space("WHERE"));
+    todo!()
 }
 
 #[cfg(test)]

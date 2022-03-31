@@ -1,9 +1,11 @@
 use crate::prelude::*;
 use crate::sparql::built_in::built_in_call;
-use crate::sparql::common::{tag_no_case_no_space, tag_no_space, var};
+use crate::sparql::common::var;
 use crate::sparql::path::{path as common_path, Path};
 use crate::triple_common_parser::literal::literal_sparql as common_literal;
-use crate::triple_common_parser::Literal;
+use crate::triple_common_parser::{
+    paren_close, paren_open, tag_no_case_no_space, tag_no_space, Literal,
+};
 use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -151,7 +153,7 @@ pub enum Expr<'a> {
 }
 pub(crate) fn as_expr(s: &str) -> ParserResult<Expr> {
     preceded(
-        char('('),
+        paren_open,
         terminated(
             map(
                 separated_pair(expr, tag_no_case_no_space("AS"), variable),
@@ -160,27 +162,27 @@ pub(crate) fn as_expr(s: &str) -> ParserResult<Expr> {
                     variable: Box::new(variable),
                 },
             ),
-            char(')'),
+            paren_close,
         ),
     )(s)
 }
 pub(super) fn bracketed(s: &str) -> ParserResult<Expr> {
     preceded(
-        char('('),
-        map(terminated(expr, char(')')), |ex| {
+        paren_open,
+        map(terminated(expr, paren_close), |ex| {
             Expr::Bracketed(Box::new(ex))
         }),
     )(s)
 }
 pub(super) fn list(s: &str) -> ParserResult<Expr> {
     preceded(
-        char('('),
+        paren_open,
         terminated(
             map(
                 separated_list1(char(','), alt((built_in_call, variable, literal, path))),
                 |list| Expr::List(VecDeque::from(list)),
             ),
-            char(')'),
+            paren_close,
         ),
     )(s)
 }

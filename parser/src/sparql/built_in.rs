@@ -1,9 +1,7 @@
 use crate::prelude::*;
-use crate::sparql::common::{
-    parameterized_func, single_parameter_func, tag_no_case_no_space, tag_no_space,
-    two_parameter_func,
-};
+use crate::sparql::common::{parameterized_func, single_parameter_func, two_parameter_func};
 use crate::sparql::expression::{expr, list, literal, path, variable, BuiltInCall, Expr};
+use crate::triple_common_parser::{tag_no_case_no_space, tag_no_space};
 
 fn str(s: &str) -> ParserResult<Expr> {
     single_parameter_func("STR", expr, |exp| {

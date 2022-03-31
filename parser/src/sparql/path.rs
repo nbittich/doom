@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use crate::triple_common_parser::iri::iri as common_iri;
-use crate::triple_common_parser::Iri;
+use crate::triple_common_parser::{paren_close, paren_open, Iri};
 
 #[derive(Debug, PartialEq)]
 pub enum Path<'a> {
@@ -28,7 +28,7 @@ pub(super) fn path(s: &str) -> ParserResult<Path> {
 }
 
 pub(super) fn group(s: &str) -> ParserResult<Path> {
-    let group_fn = |s| delimited(char('('), alt((alternative, sequence, path)), char(')'))(s);
+    let group_fn = |s| delimited(paren_open, alt((alternative, sequence, path)), paren_close)(s);
     map(
         alt((
             map(terminated(group_fn, char('+')), |p| {

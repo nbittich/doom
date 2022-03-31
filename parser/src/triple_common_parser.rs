@@ -1,5 +1,6 @@
 use crate::prelude::{
-    char, delimited, line_ending, many0, multispace0, preceded, take_until, ParserResult,
+    char, delimited, line_ending, many0, multispace0, preceded, tag, tag_no_case, take_until,
+    ParserResult,
 };
 pub const BASE_TURTLE: &str = "@base";
 pub const BASE_SPARQL: &str = "BASE";
@@ -232,7 +233,7 @@ pub(crate) mod triple {
     use crate::grammar::BLANK_NODE_LABEL;
     use crate::prelude::*;
     use crate::shared::NS_TYPE;
-    use crate::triple_common_parser::{comments, BlankNode, Iri};
+    use crate::triple_common_parser::{comments, paren_close, paren_open, BlankNode, Iri};
     use std::collections::VecDeque;
 
     pub(crate) fn object_list<'a, F1, F2, T>(
@@ -300,10 +301,10 @@ pub(crate) mod triple {
             multispace0,
             map(
                 preceded(
-                    char('('),
+                    paren_open,
                     terminated(
                         separated_list0(multispace1, object_extractor),
-                        preceded(multispace0, cut(char(')'))),
+                        preceded(multispace0, cut(paren_close)),
                     ),
                 ),
                 VecDeque::from,
@@ -344,4 +345,18 @@ pub(crate) fn comments(s: &str) -> ParserResult<Vec<&str>> {
         preceded(char('#'), take_until("\n")),
         line_ending,
     ))(s)
+}
+
+pub(crate) fn paren_close(s: &str) -> ParserResult<&str> {
+    tag_no_space(")")(s)
+}
+pub(crate) fn paren_open(s: &str) -> ParserResult<&str> {
+    tag_no_space("(")(s)
+}
+
+pub(crate) fn tag_no_space<'a>(s: &'a str) -> impl FnMut(&'a str) -> ParserResult<&'a str> {
+    delimited(multispace0, tag(s), multispace0)
+}
+pub(crate) fn tag_no_case_no_space<'a>(s: &'a str) -> impl FnMut(&'a str) -> ParserResult<&'a str> {
+    delimited(multispace0, tag_no_case(s), multispace0)
 }
